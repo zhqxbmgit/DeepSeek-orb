@@ -3,15 +3,23 @@
  */
 
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, screen, shell } from 'electron'
+import { readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { request as httpRequest } from 'node:http'
 import { createConnection, type Socket } from 'node:net'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { MAX_AVATAR_RESPONSE_BYTES, readAvatarChoice, type AvatarChoice } from './avatar.ts'
 import { collectChromeWindowIds, type NativeHandleWindow } from './chrome-windows.ts'
-import { AGENT_STRIP_WIDTH, FloatingPlacement, initialWindowBounds } from './geometry.ts'
+import {
+  AGENT_STRIP_WIDTH, FloatingPlacement, clampedBallOrigin, defaultFloatingBallOrigin, windowBoundsForBall,
+} from './geometry.ts'
 import { contextMenuTemplate } from './menu.ts'
 import { attachOverlays, denyWindowPermissions } from './overlays.ts'
 import { type MenuCatalog, type MenuSelection } from './model-menu.ts'
+import {
+  defaultPanelSize, fitPanelSize, parseGeometryStore, serializeGeometryStore, stepPanelSize,
+  type BallOrigin, type PanelSize, type StoredGeometry,
+} from './panel-geometry.ts'
 
 const socketAddress = process.env.DSH_ORB_SOCKET ?? ''
 const token = process.env.DSH_ORB_TOKEN ?? ''
@@ -76,6 +84,10 @@ let quitting = false
 let buffer = ''
 /** Last bookmark payload, re-sent when the page reloads without a socket reconnect. */
 let lastAgentItems: unknown[] = []
+/** Where the ball and the panel size are remembered; empty until the app is ready. */
+let geometryPath = ''
+/** The size the next expand uses, resolved from the geometry file before the window opens. */
+let restoredPanel: PanelSize | undefined
 
 app.on('before-quit', () => {
   quitting = true
@@ -87,7 +99,13 @@ app.on('window-all-closed', () => {
 
 void app.whenReady().then(async () => {
   if (process.platform === 'darwin') app.dock?.hide()
-  win = openWindow()
+  geometryPath = join(app.getPath('userData'), 'panel-geometry.json')
+  const stored = readGeometry(geometryPath)
+  const restored = restoreOrigin(stored.ball)
+  restoredPanel = stored.panel
+    ? fitPanelSize(stored.panel, screen.getDisplayNearestPoint(restored).workArea)
+    : defaultPanelSize(screen.getPrimaryDisplay().workArea)
+  win = openWindow(restored)
   try {
     overlays = await attachOverlays({ ball: () => win, write })
   } catch (error) {
@@ -96,7 +114,18 @@ void app.whenReady().then(async () => {
   placement = new FloatingPlacement(win, (point) => {
     const display = screen.getDisplayNearestPoint({ x: Math.round(point.x), y: Math.round(point.y) })
     return { bounds: display.bounds, workArea: display.workArea }
-  }, () => screen.getAllDisplays().map((display) => display.bounds))
+  }, () => screen.getAllDisplays().map((display) => display.bounds), restoredPanel)
+  // A display being added, removed or rescaled can leave the window partly outside its
+  // work area; the panel re-fits into the new one, and the page learns the new side.
+  const reflow = (): void => {
+    if (!placement) return
+    const state = placement.reflow()
+    persistGeometry()
+    if (win && !win.isDestroyed()) win.webContents.send('orb:expand-state', state)
+  }
+  screen.on('display-metrics-changed', reflow)
+  screen.on('display-added', reflow)
+  screen.on('display-removed', reflow)
   win.webContents.on('did-finish-load', () => {
     if (win && !win.isVisible()) win.showInactive()
     // The page may have loaded after the last appearance or bookmark change.
@@ -157,8 +186,46 @@ ipcMain.handle('orb:drag-end', async (event, canDock) => {
   const cursor = cursorPoint()
   const result = await placement.endDrag(cursor, canDock !== false)
   logDockDiagnostics(cursor, result)
+  persistGeometry()
   return result
 })
+
+/** Read the geometry file. A missing or damaged file is the same as no saved layout. */
+function readGeometry(path: string): StoredGeometry {
+  try {
+    return parseGeometryStore(readFileSync(path, 'utf8'))
+  } catch {
+    return { ball: null, panel: null }
+  }
+}
+
+/**
+ * The ball origin to open at: the saved one pulled back into the display it belongs to,
+ * or the default spot when nothing was saved. A monitor that is no longer attached
+ * answers `getDisplayNearestPoint`, so the ball always reappears on screen.
+ */
+function restoreOrigin(ball: BallOrigin | null): BallOrigin {
+  if (!ball) return defaultFloatingBallOrigin(screen.getPrimaryDisplay().workArea)
+  const display = screen.getDisplayNearestPoint(ball)
+  return clampedBallOrigin(ball, display.workArea)
+}
+
+/**
+ * Remember the ball origin and the panel size. Written on every committed move, resize
+ * and release, so a crash costs at most the gesture in flight. A failed write must never
+ * take the ball down; it only costs the restore.
+ */
+function persistGeometry(): void {
+  if (!placement || geometryPath === '') return
+  try {
+    const text = serializeGeometryStore(placement.ballOrigin(), placement.panelSize())
+    const temporary = `${geometryPath}.tmp`
+    writeFileSync(temporary, text, 'utf8')
+    renameSync(temporary, geometryPath)
+  } catch (error) {
+    console.error(`dsh-orb helper: geometry not saved: ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
 
 function cursorPoint(): { x: number; y: number } {
   const point = screen.getCursorScreenPoint()
@@ -167,7 +234,61 @@ function cursorPoint(): { x: number; y: number } {
 
 ipcMain.handle('orb:unsnap', async (event) => {
   if (!fromBall(event) || !placement) return { docked: undefined }
-  return placement.unsnap()
+  const result = await placement.unsnap()
+  persistGeometry()
+  return result
+})
+
+/**
+ * Resize the panel with the two big buttons. The step runs against the display the
+ * window is on, so a preset that does not fit is clamped instead of being refused.
+ */
+ipcMain.handle('orb:panel-size', (event, direction) => {
+  if (!fromBall(event) || !placement || !win) return { ok: false }
+  if (direction !== 'smaller' && direction !== 'larger') return { ok: false }
+  const display = screen.getDisplayMatching(win.getBounds())
+  const step = stepPanelSize(placement.panelSize(), display.workArea, direction)
+  if (!step.changed) {
+    return { ok: true, changed: false, width: step.size.width, height: step.size.height }
+  }
+  // The direction can cross the up/down boundary when the panel grows or shrinks. Return
+  // the exact layout the window now has, from the same call that applied it, so the page
+  // flips its classes instead of keeping the old side.
+  const state = placement.setPanelSize(step.size)
+  persistGeometry()
+  return {
+    ok: true,
+    changed: true,
+    width: step.size.width,
+    height: step.size.height,
+    state,
+  }
+})
+
+/**
+ * Clipboard text for the paste button. The ball window rests unfocused, where the
+ * renderer's Clipboard API is refused, so the read happens here. Non-text and an empty
+ * clipboard both answer `empty`: Electron exposes no way to tell them apart.
+ */
+ipcMain.handle('orb:read-clipboard', (event) => {
+  if (!fromBall(event)) return { ok: false, reason: 'error' }
+  try {
+    const text = clipboard.readText()
+    if (typeof text !== 'string' || text.trim() === '') return { ok: false, reason: 'empty' }
+    return { ok: true, text }
+  } catch {
+    return { ok: false, reason: 'error' }
+  }
+})
+
+ipcMain.on('orb:open-main', (event) => {
+  if (!fromBall(event)) return
+  write({ type: 'open-main' })
+})
+
+ipcMain.on('orb:open-settings', (event) => {
+  if (!fromBall(event)) return
+  write({ type: 'open-settings' })
 })
 
 ipcMain.on('orb:prompt', (event, text) => {
@@ -253,8 +374,8 @@ ipcMain.handle('orb:tcc-open', (event, right) => {
   return askTcc({ type: 'tcc-open', right })
 })
 
-function openWindow(): BrowserWindow {
-  const bounds = initialWindowBounds(screen.getPrimaryDisplay().workArea)
+function openWindow(origin: BallOrigin): BrowserWindow {
+  const bounds = windowBoundsForBall(origin)
   const created = new BrowserWindow({
     title: 'dsh-orb',
     x: bounds.x,

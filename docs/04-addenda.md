@@ -308,3 +308,61 @@ Windows 上的实测反馈:在浏览器里点球、输入、回车提交后,**Ag
 - `pnpm typecheck` / `pnpm test`(node:test 全绿 + computer-use 321 例)/ `pnpm build` 全部通过。
 - **真实 UI 端到端**:用临时 `DSH_HOME` 装本次打包产物(`--version 0.1.9-uinotice2`),另起一份 `dsh web`,无头 Chrome 打开真实设置页截图:失败态是红色卡片 + 主按钮;点击后确实发出 `POST /.dsh-orb/runtime/redownload`,界面立刻切到蓝色等待卡片;再把 `DSH_ORB_ELECTRON_PATH` 指向一个可执行文件后再次点击,host 日志由 `ENOENT: … access '/tmp/orb-shot/fake-electron'` 变为 `helper started pid 78834` —— 证明按钮真的重跑了整条运行时解析,而不是只改了界面。用户的 52455 实例与 `~/.dsh` 全程未动,临时 home 与临时目录已删除,仓库里只留打包用的临时版本号 tarball(验证后即删)。
 - **未做**:主窗口/会话列表侧的提示(本次只要求设置页内显眼)。慢网 5 分钟硬超时(`--max-time 300`)与 100 KB/s 下限仍在,所以「下不完」这件事本身没变——变的是用户现在看得见、点得动。
+
+## 23. 单指操作版第一版：稳定面板、大按钮、位置/大小与状态说明(2026-10-19)
+
+需求:用户左手不可用、没有实体鼠标键盘,只用一个手指在手机小范围内经 rightpad 操作,同时必须保留 Free Virtual Keyboard(FVK)。原版试用的痛点是:发送依赖 Enter、设置/主窗口依赖右键、悬停展开后指针一离开就收起、面板位置和大小不可控、运行与后台状态说不清。本版只改**入口与状态表达**,模型、会话、Computer Use 后端与 Host 协议一处未动;不修改 rightpad、FVK、Harness 或任何 Profile。
+
+- **面板改为点击持有,不再悬停**:删除 `syncExpand()` / `scheduleCollapse()`,指针离开与窗口失焦都不再收起;左键单击球展开、再次单击或「收起」按钮关闭,草稿全程保留。「收起」在对话运行中也允许:球上徽标(转圈+后台数 / ✓+未读数)继续显示状态,面板挡住屏幕时可以先收起来。已停靠的细条仍用悬停滑回——那是取回隐藏球的方式,与面板开合无关,保留。
+- **发送**:composer 内新增 `button#send[type=submit]`,54px 高;空输入点击只提示「请先输入任务」,不清草稿;`submitting` 锁 + 6s 安全释放 + `setRunning` 解锁,连续 Enter/双击只发一次;提交后立刻用本地回显块显示「已提交给助手」(host 的 live 回合不推送 user/message,这个回显补上「发出去了」的可见证据,但**不声称任务已执行或成功**)。Enter 发送、Shift+Enter 换行保持原样。
+- **粘贴**:`button#paste`(52px 全宽)→ preload `orb:read-clipboard` → helper 主进程 `clipboard.readText()`(球窗口不聚焦,renderer Clipboard API 会被拒);纯函数 `mergePastedText()` 追加到现有草稿(空行分隔、8000 字上限截断),**不发送**;空剪贴板/非文本/读取失败分别给短提示,草稿不动。
+- **左键入口**:工具行新增「设置」「主窗口」「移动」,沿用 host 已有的 `open-settings` / `open-main` 消息,右键菜单原样保留;文字按钮 13px、48px 高,不靠 hover 提示。第二行是历史/权限/新建/大小 −+,图标按钮 38px。
+- **位置与大小**:新增 `panel-geometry.ts` 四个尺寸阶梯(340×480 / 400×560 / 480×660 / 560×760,默认第二个,放不下时降级),`FloatingPlacement.setPanelSize()` 围绕固定球原点重排;「移动」手柄复用球的拖动通道(`dragPress`/`dragBegin`/`dragMove`/`dragEnd`,canDock=false),不会收起也不会停靠;`main.ts` 把球原点+面板尺寸写进 helper userData 的 `panel-geometry.json`(临时文件+rename),启动时读取并夹回最近的显示器工作区;`display-added`/`display-removed`/`display-metrics-changed` 触发 `placement.reflow()` 重新夹紧并通知页面方向。面板尺寸改变不移动球的抓取点,也不通过 focus 或全局钩子维持。
+- **状态与停止**:composer 上方常驻 `#task-state` 一行——「本对话运行中 0:42」与「后台 1 个任务运行中」分开计数,空闲时也显示后台是否仍在跑/已完成;运行中 `#turnbar` 用全宽「停止当前对话」按钮替换输入区,上方常驻「停止只作用于本对话,后台任务继续运行;已执行的操作不会撤销」;点击后按钮禁用直到回合结束或 6s 超时,提示语同样不承诺撤销。球收起时徽标区分运行(蓝转圈+后台数)与完成未查看(✓+数)。
+- **不抢焦点**:没有新增 `focus()` / `show()` 轮询;唯一的主动聚焦是点「粘贴任务」后把光标放回输入框(用户手势内)。
+
+验证(2026-10-19):
+
+- `pnpm typecheck` 通过;`pnpm build` 通过(组装产物含新资源)。
+- `node:test` 392 例:391 通过,唯一失败是仓库既有的 POSIX 夹具(测试用 `#!/bin/sh` 造 `pnpm`、以 `:` 分隔 PATH,在 Windows 上本来就跑不了,见第 19 节),与本次改动无关。新增 `helper/tests/panel-geometry.test.ts`(尺寸/夹紧/步进/持久化校验)、`helper/tests/composer-text.test.ts`(追加/截断/空剪贴板),`geometry.test.ts` 新增 setPanelSize/reflow 3 例,`shell-render.test.ts` / `drag-input.test.ts` 按新交互更新并新增发送、粘贴、入口、几何、状态、徽标的源码守卫。
+- `@dsh-orb/computer-use` vitest 321/321 通过。
+- **隔离界面验证**:`.zcode/ui/smoke.mjs` 用无头 Chrome 加载 `packages/bundle/dist/helper/assets`(构建产物,不是源码目录),以 stub 桥接替代 Electron/preload,DevTools 驱动真实鼠标点击与 `Input.insertText`;49/49 断言通过,覆盖:单击开/收起、pointerleave + window.blur 不收、真实键入、粘贴追加/不发送/空剪贴板、连续 submit 只发一次、本地回显、运行态 turnbar 与任务行、后台任务并行时不得显示全停、停止只发一次且文案含「不撤销」、草稿跨收起保留、球徽标计数、设置/主窗口入口、尺寸步进与边界提示、移动手柄的拖动通道、zh/en 文案切换、页面与控制台无错误。截图见 `.zcode/ui/shots/01-collapsed.png` … `06-open-zh.png`(面板 400×560 + 12px chrome 的默认尺寸)。
+- **打包**:`pnpm --filter dsh-orb run pack`(koffi 平台预编译包从 registry.npmjs.org 取)生成 `C:\dsh-orb-cordis\dsh-orb-0.2.0.tgz`,24,449,782 字节,SHA-256 `490C6078E5283CDBED72F8701E15E2A0B36566195E2825A76643E8723DD57564`;已解包核对 `package.json`(name=dsh-orb,version=0.2.0)、`dist/helper/assets/{floating.html,floating.css,shell.js,composer-text.js}` 与三平台 koffi 预编译。
+- **未实测/未做**:真实 FVK 输入未验证(自动化只到 `Input.insertText` 这一层);真实 Harness 模型回合未跑(没有安装进日常 Profile,也没重启 Harness);Electron 窗口的真实几何、跨显示器 reflow、`panel-geometry.json` 落盘与重启恢复只有单元测试与源码路径,没有在真实 helper 进程里端到端跑过;单指操作体验验收需要用户本人。安装试用步骤与回退见交付说明;本轮未改 `C:\rightpad`、FVK、Harness、任何 Profile 或日常运行目录。
+
+## 24. 成果检查后的四项返工:回显、停止统计、方向同步、安装文档(2026-10-19)
+
+检查方在 0.2.0 上发现四个问题;本轮只修正这四项并重新打包,第 23 节的其余行为保持不变。**第 23 节里关于本地回显、后台统计与 `orb:panel-size` 的描述以本节为准。**
+
+- **问题 1 · 用户消息重复回显**:`OrbRuntime.onPrompt()` 在派发前就调用 `block('user:<uuid>', …)`,Host 本来会回传一条用户消息;renderer 又在 `api.send` 前调用 `echoUser()` 造了 `local-user:<n>` 块,两者 key 不同、无法合并,于是同一任务显示成两条。修法是**删掉本地用户气泡**(`echoUser`、`local-user` key、`.user-sent-note` 与“已提交给助手”文案),只保留 Host 的 `user:` 块;新增纯函数 `assets/submit-confirmation.js`,用提交时的 payload 只做“Host 是否已接收”的确认,不生成或改写任何 transcript 块。匹配只用于送达握手,行仍按 Host 的 key 保存,所以两次合法发送相同文本仍是两条。未在 6 秒内收到 Host 回显时不画任何成功状态:任务文本放回空输入框并提示「未收到提交确认」;`submitting` 锁在 Host 回显后继续保留到回合开始或安全超时,双击/连续 Enter 仍只发一次。
+- **问题 2 · 停止任务被统计成完成**:`backgroundCounts()` 先判 `unread`、再判 `state`,把 `{ state:'stopped', unread:true }` 归进“未读完成”。新增 `assets/background-status.js`:`countAgentStates()` 按真实状态分别计数,`unread` 只作为独立视图标记;`describeTaskStatus()` 同时生成任务行文本、状态颜色和球徽标,两个界面不再各算一套。停止/结束的未读任务显示「后台 N 个任务已停止」、状态点 `stopped`、徽标 `!`;完成显示「已完成」/绿色 `✓`;运行、完成、停止同时存在时逐项列出,当前对话运行中就不会被描述成全部结束。
+- **问题 3 · 调整大小后页面方向不同步**:`orb:panel-size` 原先只返回宽高,`setPanelSize()` 重算出的 `ExpandState` 被丢掉。现在 handler 返回 `state`,renderer 在 `changePanelSize()` 里先 `applyDirection(result.state)` 再提示尺寸;方向跨越上下边界时球、输入区和工具行一起翻转;书签条宽度也随同一份 state 保留。`setPanelSize()` 仍是唯一的方向来源,没有另建计算。
+- **问题 4 · 安装文档未绑定 Profile**:`docs/05-single-finger-trial.md` 重写为 `dsh plugin --profile desktop add …`;隔离检查使用独立命名的 `orb-verify-0.2.1` Profile 并写明路径 `C:\Users\zhq\.dsh\profiles\orb-verify-0.2.1` 与归属;新增安装后核对版本/路径(含运行中 helper 命令行)的步骤;回退先走 `dsh plugin --profile desktop remove dsh-orb`,再核对插件相关变化,整份清单备份只用于故障恢复且恢复前先比较快照之后的变更。本轮只改文档,没有执行安装或回退。
+
+验证(2026-10-19,0.2.1):
+
+- `pnpm typecheck` 通过;`pnpm build` 通过。
+- 新增行为测试:`helper/tests/background-status.test.ts` 9 例(stopped+unread、completed+unread、running、三者混合、完成+停止混合、ended、运行中+停止、已读、畸形输入),直接断言任务行文本、`state` 与徽标 kind/count;`helper/tests/submit-confirmation.test.ts` 4 例(匹配 Host 帧、忽略非 user/非匹配文本、两次相同发送各自确认、清空后不误确认);`geometry.test.ts` 新增 2 例(400×560→480×660 跨上下边界时 state 与窗口 bounds 一致、带书签条时方向翻转仍保留 strip);`host/tests/runtime.test.ts` 新增 1 例(一次 prompt 恰好一条 Host `user:` 块;两次相同文本得到两个不同 key)。
+- `node:test` 410 例,409 通过(唯一失败仍是既有的 POSIX 夹具,见第 19 节);`@dsh-orb/computer-use` vitest 321/321 通过。
+- **隔离界面验证**:`.zcode/ui/smoke.mjs` 加载构建产物,stub 按 Host 真实帧回显 `user:` 块;71/71 断言通过。新增覆盖:Host 回显只显示一条用户行、双击只发一次、两次相同发送两行、Host 不回显时不出现用户行且草稿回填、stopped+unread 显示 `!` 徽标与“已停止”、completed+unread 显示 `✓`/“已完成”、运行+完成+停止混合逐项列出、尺寸翻转后 `expand-down`/`has-strip` 同步、翻转后收起再展开仍保持、带书签条的视口截图。
+- **打包**:`pnpm --filter dsh-orb run pack` 生成 `C:\dsh-orb-cordis\dsh-orb-0.2.1.tgz`(不覆盖 0.2.0),24,452,078 字节,SHA-256 `086B229F0FCDC879A247F8FF73A03F4E5BC521039BB734F10B52E171C746E1F7`;已解包核对 `package.json`(name=dsh-orb,version=0.2.1)、新增的 `background-status.js`/`submit-confirmation.js` 与三平台 koffi 预编译。
+- **未实测**:真实 FVK、真实 Harness 模型回合、真实 Electron 几何/重启恢复、安装与回退命令本身均未执行;仍需用户本人做单指体验验收。
+
+## 25. 提交超时后的未确认任务与迟到确认(2026-10-19)
+
+检查方复现了两个超时缺陷:① 超时时输入框里已有新草稿 B,`expireSubmit()` 仍无条件清空 tracker,任务 A 没有回填也没有恢复入口,提示却说“已把任务放回输入框”;② 超时后把 A 自动回填,随后才收到 A 的 Host 回显,tracker 已清空,输入框仍留着可再次发送的 A,容易引导重复提交。核心语义:**没及时收到确认只代表送达未知,不等于失败,也不证明原任务没有执行。**
+
+- **跟踪器改成可保存的队列**([submit-confirmation.js](packages/helper/assets/submit-confirmation.js)):`expect(text, scope)` 返回 entry id;`expire(id)` 只把状态改成 `timedOut`,**不删除**;`observe(block, scope)` 按“同会话 + 相同 payload + 最早发送”匹配并只删除该 entry,返回它;`list()/remove()/clear()` 供界面与测试使用。两次相同文本按发送顺序各占一条;不同会话里回放的同文本消息不会确认它。匹配只用于送达握手,不删除、不合并 transcript 行。
+- **超时不再丢任务**:`expireSubmit(entryId)` 保留 tracker entry;输入框为空时回填并记录 `autoFilled = { entryId, text }`,提示“任务已放回输入框”;输入框已有草稿时**不覆盖也不拼接**,提示“任务未放回”。`#unconfirmed` 卡片列出一条或多条 `timedOut` 记录,每条有「复制 / 放回输入框 / 移除记录」三个左键按钮;输入框有草稿时“放回”会拒绝并提示先复制。卡片不会显示正在等待的普通提交,避免闪一下。
+- **迟到确认只收敛自己的 entry**:`onBlock` 用当前 `sessionId` 调 `observe`;匹配后 `handleConfirmed(entry)` 只有在“自动回填的 entry 相同且输入框内容仍是原样”时才清掉回填;用户改过的内容或后来输入的草稿保持不动;卡片随之消失。若输入框已空或不是自动回填,只提示“Host 已确认”,不动内容。
+- **不再由 turn 事件统一清空**:`setRunning(true)` 只调用 `releaseConfirmedSubmit()`——仅当 in-flight entry 已从 tracker 消失(即 Host 回显已到)时才释放发送锁;wake turn 或旧任务的迟到 turn 不会解锁、也不会遗忘新的等待项。`setRunning(false)` 不再清 tracker。超时后仍不自动重发;从卡片复制/放回后再点发送是一次明确的新提交。
+- **顺手修掉截图中发现的遮挡**:工具行是绝对定位的透明层,转录区滚动后的文字会从按钮缝隙透出来(截图里看起来像乱码字形)。`#panel-tools` 增加与面板同色的底板,遮住下面的滚动内容。
+- **隔离界面新增场景**:空输入超时回填 + 卡片 + 迟到回显清空;有草稿 B 时保留 B、卡片可复制/拒绝覆盖、迟到回显不动 B;自动回填被编辑后迟到回显保留编辑;A 未确认时发送 B 并收到 B 回显,卡片 A 不被清除;其它 transcript 消息不影响 A;A 的迟到回显只清 A。完整日志见 `.zcode/ui/logs/20261019-233115-0.2.2-smoke.log` 及同目录后续运行。
+
+验证(2026-10-19,0.2.2):
+
+- `pnpm typecheck` 通过;`pnpm build` 通过。
+- `submit-confirmation.test.ts` 8 例(普通匹配、超时后迟到回显、跨会话不误确认、两次相同发送、A/B 独立、旧/新并发、按 id 移除、空载荷);`shell-render.test.ts` 更新为 4 条发送/超时结构守卫;`node:test` 416 例,415 通过(唯一失败仍是既有的 POSIX 夹具);vitest 321/321。
+- 隔离界面 94/94,日志 `.zcode/ui/logs/20261019-235537-0.2.2-smoke.log`(完整 stdout/stderr 与 `exit=0`,测试时间、构建产物路径与四个资源哈希记录在日志头);同目录 `20261019-235537-0.2.2-node-test.log` / `…-vitest.log` 保存全量测试输出。
+- **打包**:`C:\dsh-orb-cordis\dsh-orb-0.2.2.tgz`,24,455,181 字节,SHA-256 `09B3F1CF63CF328EC8539A4E10F13E2159EC2EF7F61CC3343023B0BBB832E2B0`;保留 0.2.0 / 0.2.1 旧包。已解包核对版本与新增资源。
+- **未实测**:真实 FVK、真实 Harness 模型回合、真实 Electron 窗口/重启恢复、安装与回退命令;仍需用户本人验收。

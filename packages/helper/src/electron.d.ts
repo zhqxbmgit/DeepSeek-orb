@@ -79,6 +79,7 @@ declare module 'electron' {
     quit(): void
     exit(code: number): void
     getLocale?(): string
+    getPath(name: 'userData'): string
     setActivationPolicy?(policy: 'accessory'): void
     dock?: { hide(): void }
     on(event: 'before-quit' | 'window-all-closed', listener: () => void): void
@@ -113,9 +114,11 @@ declare module 'electron' {
     getPrimaryDisplay(): Display
     getAllDisplays(): Display[]
     getDisplayNearestPoint(point: { x: number; y: number }): Display
+    getDisplayMatching(rect: Rectangle): Display
     /** Absolute cursor position in DIPs, the same space `BrowserWindow` bounds use. */
     getCursorScreenPoint(): { x: number; y: number }
     screenToDipRect(window: null, rect: Rectangle): Rectangle
+    on(event: 'display-added' | 'display-removed' | 'display-metrics-changed', listener: () => void): void
   }
 
   export const ipcMain: {

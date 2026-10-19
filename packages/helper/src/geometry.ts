@@ -1,7 +1,10 @@
 /**
  * Floating-ball window geometry.
- * Sizes match the fork overlay exactly: a 72px ball, 12px of transparent chrome, and a 320×420 panel.
+ * The ball is 72px with 12px of transparent chrome; the panel starts at 320×420 (the
+ * original fork size, kept as the library default) and the helper grows it from a preset.
  */
+
+import { fitPanelSize, type PanelSize } from './panel-geometry.ts'
 
 export const BALL_SIZE = 72
 export const PANEL_SIZE = { width: 320, height: 420 } as const
@@ -92,6 +95,11 @@ function collapsedWindowBounds(ball: { readonly x: number; readonly y: number })
   }
 }
 
+/** A collapsed window's bounds for a ball origin, in the same DIP space the OS uses. */
+export function windowBoundsForBall(ball: { readonly x: number; readonly y: number }): Rect {
+  return collapsedWindowBounds({ x: Math.round(ball.x), y: Math.round(ball.y) })
+}
+
 /**
  * Chromium turns a DIP window size into device pixels with an enclosing rect, then
  * converts back the same way. Whenever `size * scaleFactor` is not an integer
@@ -171,10 +179,11 @@ export function dockedTabBounds(side: DockSide, ballY: number, workArea: Rect): 
 export function expandDirection(
   ball: { readonly x: number; readonly y: number },
   workArea: Rect,
+  panelSize: PanelSize = PANEL_SIZE,
 ): Direction {
   const centerX = ball.x + BALL_SIZE / 2
   const horizontal: HorizontalExpand = centerX - workArea.x > workArea.width / 2 ? 'left' : 'right'
-  const vertical: VerticalExpand = ball.y - workArea.y < PANEL_SIZE.height - BALL_SIZE ? 'down' : 'up'
+  const vertical: VerticalExpand = ball.y - workArea.y < panelSize.height - BALL_SIZE ? 'down' : 'up'
   return { horizontal, vertical }
 }
 
@@ -213,18 +222,19 @@ function overlayBoundsFromBall(
   ball: { readonly x: number; readonly y: number },
   direction: Direction,
   stripWidth = 0,
+  panelSize: PanelSize = PANEL_SIZE,
 ): Rect {
   return {
     // The strip widens the far edge only; the ball-anchored near edge is untouched,
     // so ballOriginFromWindow needs no strip awareness.
     x: direction.horizontal === 'left'
-      ? ball.x - (PANEL_SIZE.width - BALL_SIZE) - CHROME_INSET - stripWidth
+      ? ball.x - (panelSize.width - BALL_SIZE) - CHROME_INSET - stripWidth
       : ball.x - CHROME_INSET,
     y: direction.vertical === 'up'
-      ? ball.y - (PANEL_SIZE.height - BALL_SIZE) - CHROME_INSET
+      ? ball.y - (panelSize.height - BALL_SIZE) - CHROME_INSET
       : ball.y - CHROME_INSET,
-    width: PANEL_WINDOW_SIZE.width + stripWidth,
-    height: PANEL_WINDOW_SIZE.height,
+    width: panelSize.width + 2 * CHROME_INSET + stripWidth,
+    height: panelSize.height + 2 * CHROME_INSET,
   }
 }
 
@@ -232,9 +242,10 @@ function expandedOverlayBounds(
   ball: { readonly x: number; readonly y: number },
   workArea: Rect,
   stripWidth = 0,
+  panelSize: PanelSize = PANEL_SIZE,
 ): Rect & Direction {
-  const direction = expandDirection(ball, workArea)
-  const unclamped = overlayBoundsFromBall(ball, direction, stripWidth)
+  const direction = expandDirection(ball, workArea, panelSize)
+  const unclamped = overlayBoundsFromBall(ball, direction, stripWidth, panelSize)
   return {
     x: clampWindowOrigin(unclamped.x, workArea.x, workArea.width, unclamped.width),
     y: clampWindowOrigin(unclamped.y, workArea.y, workArea.height, unclamped.height),
@@ -312,6 +323,8 @@ export class FloatingPlacement {
   private docked: { side: DockSide; y: number } | undefined
   private stripWidth = 0
   private anim = 0
+  /** Panel size the overlay is built from; the helper restores it from the geometry file. */
+  private panel: PanelSize
   /** Cursor offset inside the ball, recorded at press and kept for the whole gesture. */
   private grab: Point | undefined
   /** Set once the renderer reports that the gesture passed the drag threshold. */
@@ -327,7 +340,64 @@ export class FloatingPlacement {
   constructor(private readonly window: {
     getBounds(): Rect
     setBounds(bounds: Rect): void
-  }, private readonly displayAt: (point: { x: number; y: number }) => DisplayPair, private readonly displayBounds: () => readonly Rect[] = () => []) {}
+  }, private readonly displayAt: (point: { x: number; y: number }) => DisplayPair, private readonly displayBounds: () => readonly Rect[] = () => [], panelSize: PanelSize = PANEL_SIZE) {
+    this.panel = { width: panelSize.width, height: panelSize.height }
+  }
+
+  /** The panel size the window currently uses. */
+  panelSize(): PanelSize {
+    return this.panel
+  }
+
+  /** Ball origin of the window as it stands, docked tab included. */
+  ballOrigin(): Point {
+    return this.currentBallOrigin()
+  }
+
+  /**
+   * Adopt a new panel size. An open panel re-bounds around its fixed ball origin, so the
+   * size buttons never move the ball out from under the pointer; a collapsed ball keeps
+   * the size for the next expand.
+   */
+  setPanelSize(size: PanelSize): ExpandState {
+    this.panel = { width: Math.round(size.width), height: Math.round(size.height) }
+    const bounds = this.window.getBounds()
+    if (!isCollapsed(bounds) && this.docked === undefined) {
+      const display = this.displayAt(center(bounds))
+      const origin = this.currentBallOrigin()
+      const next = expandedOverlayBounds(origin, display.workArea, this.stripWidth, this.panel)
+      this.direction = { horizontal: next.horizontal, vertical: next.vertical }
+      this.window.setBounds({ x: next.x, y: next.y, width: next.width, height: next.height })
+    }
+    return this.expandState()
+  }
+
+  /**
+   * Re-fit after a display is added, removed or rescaled: the panel shrinks into the work
+   * area it is on, and a ball that is now outside every screen comes back. The stored
+   * preference is untouched; only this session's geometry changes.
+   */
+  reflow(): ExpandState {
+    const bounds = this.window.getBounds()
+    const display = this.displayAt(center(bounds))
+    this.panel = fitPanelSize(this.panel, display.workArea)
+    if (this.docked) {
+      this.applyTab(this.docked.side, this.docked.y, display.workArea)
+      return this.expandState()
+    }
+    if (isCollapsed(bounds)) {
+      const origin = clampedBallOrigin(this.currentBallOrigin(), display.workArea)
+      this.placedOrigin = origin
+      this.window.setBounds(collapsedWindowBounds(origin))
+      return this.expandState()
+    }
+    const origin = clampedBallOrigin(this.currentBallOrigin(), display.workArea)
+    this.placedOrigin = origin
+    const next = expandedOverlayBounds(origin, display.workArea, this.stripWidth, this.panel)
+    this.direction = { horizontal: next.horizontal, vertical: next.vertical }
+    this.window.setBounds({ x: next.x, y: next.y, width: next.width, height: next.height })
+    return this.expandState()
+  }
 
   /** Ball origin of a collapsed window, from the window bounds the OS applied. */
   private collapsedBallOrigin(): Point {
@@ -345,7 +415,7 @@ export class FloatingPlacement {
     if (expanded) {
       const origin = this.currentBallOrigin()
       this.docked = undefined
-      const next = expandedOverlayBounds(origin, display.workArea, this.stripWidth)
+      const next = expandedOverlayBounds(origin, display.workArea, this.stripWidth, this.panel)
       this.direction = { horizontal: next.horizontal, vertical: next.vertical }
       this.window.setBounds({ x: next.x, y: next.y, width: next.width, height: next.height })
       return { expanded: true, ...this.direction, docked: undefined, strip: this.stripWidth }
@@ -374,7 +444,7 @@ export class FloatingPlacement {
     if (!isCollapsed(bounds) && !this.docked) {
       const display = this.displayAt(center(bounds))
       const origin = this.currentBallOrigin()
-      const nextBounds = expandedOverlayBounds(origin, display.workArea, this.stripWidth)
+      const nextBounds = expandedOverlayBounds(origin, display.workArea, this.stripWidth, this.panel)
       this.direction = { horizontal: nextBounds.horizontal, vertical: nextBounds.vertical }
       this.window.setBounds({ x: nextBounds.x, y: nextBounds.y, width: nextBounds.width, height: nextBounds.height })
     }
@@ -391,7 +461,7 @@ export class FloatingPlacement {
     const bounds = this.window.getBounds()
     if (!isCollapsed(bounds) && this.docked === undefined) {
       const direction = this.direction
-      this.window.setBounds(overlayBoundsFromBall(origin, direction, this.stripWidth))
+      this.window.setBounds(overlayBoundsFromBall(origin, direction, this.stripWidth, this.panel))
       return { docked: undefined }
     }
     if (!canDock) {

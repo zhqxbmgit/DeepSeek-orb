@@ -26,6 +26,18 @@ contextBridge.exposeInMainWorld('dshOrb', {
   send(text) {
     ipcRenderer.send('orb:prompt', text)
   },
+  readClipboard() {
+    return ipcRenderer.invoke('orb:read-clipboard')
+  },
+  resizePanel(direction) {
+    return ipcRenderer.invoke('orb:panel-size', direction)
+  },
+  openMain() {
+    ipcRenderer.send('orb:open-main')
+  },
+  openSettings() {
+    ipcRenderer.send('orb:open-settings')
+  },
   answerQuestion(id, answers) {
     ipcRenderer.send('orb:question-answer', { id, answers })
   },

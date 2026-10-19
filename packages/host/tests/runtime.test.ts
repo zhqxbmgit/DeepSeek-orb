@@ -423,6 +423,33 @@ describe('ball control socket', { concurrency: 1 }, () => {
     }
   })
 
+  it('echoes every accepted prompt as exactly one user block, even for identical text', async () => {
+    const harness = boot()
+    const client = await connect(harness.runtime)
+    try {
+      client.send({ type: 'new' })
+      await waitFor(() => client.messages.some((message) => message.type === 'session'))
+      harness.holdPrompt()
+      client.send({ type: 'prompt', text: '同一任务' })
+      client.send({ type: 'prompt', text: '同一任务' })
+      await waitFor(() => client.messages.filter((message) => (
+        message.type === 'block' && (message as { kind?: string }).kind === 'user'
+      )).length === 2)
+      const echoes = client.messages.filter((message) => (
+        message.type === 'block' && (message as { kind?: string }).kind === 'user'
+      ))
+      // One prompt, one echo: the page must not draw a second copy of its own.
+      assert.deepEqual(echoes.map((message) => textOf(message)), ['同一任务', '同一任务'])
+      assert.equal(new Set(echoes.map((message) => keyOf(message))).size, 2, 'two sends keep two Host keys')
+      assert.equal(echoes.every((message) => keyOf(message).startsWith('user:')), true)
+      harness.releasePrompt()
+    } finally {
+      harness.releasePrompt()
+      client.socket.end()
+      harness.runtime.halt()
+    }
+  })
+
   it('starts a fresh conversation when the saved one is gone', async () => {
     const harness = boot()
     mkdirSync(join(home, 'dsh-orb'), { recursive: true })

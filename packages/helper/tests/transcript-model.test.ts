@@ -214,11 +214,12 @@ describe('ball page module', () => {
     assert.match(floating, /#transcript \{[^}]*user-select: text/s)
   })
 
-  it('pins from an input click and keeps unpinning on the ball only', () => {
+  it('pins from an input click and leaves open/close on the ball click', () => {
     const shell = readFileSync(join(here, '../assets/shell.js'), 'utf8')
     assert.match(shell, /prompt\.addEventListener\('click', \(\) => \{ pinBall\(\) \}\)/)
-    // pinBall is set-only; the toggle (and the unpin) stays on the ball's pointerup.
+    // pinBall is set-only; the ball's pointerup is the switch, and an open panel is closed
+    // through the explicit collapse path instead of a bare flag flip.
     assert.match(shell, /function pinBall\(\) \{\s*\n\s*if \(pinned\) return\s*\n\s*pinned = true/)
-    assert.match(shell, /pinned = !pinned/)
+    assert.match(shell, /if \(expanded\) \{\s*\n\s*await collapsePanel\(\)/)
   })
 })

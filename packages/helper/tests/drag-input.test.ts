@@ -163,9 +163,10 @@ describe('floating ball drag wiring', () => {
     assert.match(code, /Math\.hypot\(event\.clientX - pressAt\.x, event\.clientY - pressAt\.y\) <= 4/)
   })
 
-  it('keeps enter and leave from flipping the panel while a button is held', () => {
-    assert.match(code, /function syncExpand\(\) \{\s*\n\s*if \(pointerHeld \|\| dragging\) return/)
-    assert.match(code, /pointerleave[\s\S]{0,200}if \(pointerHeld \|\| dragging\) return/)
+  it('keeps pointer movement from flipping the panel while a button is held', () => {
+    // Hover expands nothing any more: only a docked sliver is pulled back by a hover.
+    assert.equal(code.includes('syncExpand'), false)
+    assert.match(code, /document\.body\.addEventListener\('pointerleave', \(\) => \{\s*\n\s+dockPointerInside = false\s*\n\s+if \(pointerHeld \|\| dragging\) return/)
     // A dropped pointerup must not leave the gesture stuck: a fresh enter with no
     // button down ends it.
     assert.match(code, /if \(pointerHeld && typeof event\.buttons === 'number' && event\.buttons === 0\) void finishGesture\(\)/)
@@ -174,7 +175,7 @@ describe('floating ball drag wiring', () => {
   it('ends the gesture on every release path, including a lost capture and a window blur', () => {
     assert.match(code, /ball\.addEventListener\('lostpointercapture', \(\) => \{ void finishGesture\(\) \}\)/)
     assert.match(code, /window\.addEventListener\('blur', \(\) => \{\s*\n\s*if \(pointerHeld\) void finishGesture\(\)/)
-    assert.match(code, /if \(!skipDock\) applyDockedFrom\(await api\.dragEnd\(/)
+    assert.match(code, /if \(!skipDock\) \{\s*\n(?:\s*\/\/[^\n]*\n)*\s*applyDockedFrom\(await api\.dragEnd\(panelDrag \? false/)
   })
 
   it('applies the layout a release reports, so an open panel shows the side it now grew', () => {

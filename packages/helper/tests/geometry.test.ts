@@ -336,6 +336,107 @@ describe('release layout', () => {
   })
 })
 
+describe('panel size and display changes', () => {
+  it('re-bounds an open panel around the same ball origin', () => {
+    const displays = [pair(0, 0, 1920, 1080)]
+    // Low on the screen, where a 760px panel fits above the ball without clamping.
+    const placed = placement(displays, 1600, 900)
+    placed.setExpanded(true)
+    const state = placed.setPanelSize({ width: 560, height: 760 })
+    const bounds = lastBounds.get(placed)
+    assert.ok(bounds)
+    assert.equal(state.expanded, true)
+    assert.equal(bounds.width, 560 + 2 * CHROME_INSET)
+    assert.equal(bounds.height, 760 + 2 * CHROME_INSET)
+    assert.deepEqual(ballOriginFromWindow(bounds, state), { x: 1600, y: 900 })
+    assert.deepEqual(placed.panelSize(), { width: 560, height: 760 })
+  })
+
+  it('keeps a collapsed window ball-sized when the panel size changes', () => {
+    const display = pair(0, 0, 1920, 1080)
+    let bounds: Rect = {
+      x: 1600 - CHROME_INSET,
+      y: 500 - CHROME_INSET,
+      width: BALL_WINDOW_SIZE,
+      height: BALL_WINDOW_SIZE,
+    }
+    const placed = new FloatingPlacement({
+      getBounds: () => ({ ...bounds }),
+      setBounds(next) { bounds = { ...next } },
+    }, () => display, () => [display.bounds])
+    placed.setPanelSize({ width: 480, height: 660 })
+    assert.equal(bounds.width, BALL_WINDOW_SIZE)
+    assert.equal(bounds.height, BALL_WINDOW_SIZE)
+    // The next expand is the one that grows.
+    const opened = placed.setExpanded(true)
+    assert.equal(bounds.width, 480 + 2 * CHROME_INSET)
+    assert.equal(bounds.height, 660 + 2 * CHROME_INSET)
+    assert.equal(opened.expanded, true)
+  })
+
+  it('reports the growth side when a size step crosses the up/down boundary', () => {
+    const display = pair(0, 0, 1920, 1600)
+    const placed = placement([display], 1400, 550)
+    const before = placed.setExpanded(true)
+    // 550 >= 560 - 72: the 560-tall panel opens upwards.
+    assert.equal(before.vertical, 'up')
+    const after = placed.setPanelSize({ width: 480, height: 660 })
+    // 550 < 660 - 72: the taller panel now opens downwards, and the state says so.
+    assert.equal(after.vertical, 'down')
+    const bounds = lastBounds.get(placed)
+    assert.ok(bounds)
+    assert.equal(bounds.y, 550 - CHROME_INSET)
+    assert.equal(bounds.height, 660 + 2 * CHROME_INSET)
+    assert.equal(bounds.width, 480 + 2 * CHROME_INSET)
+    assert.deepEqual(ballOriginFromWindow(bounds, after), { x: 1400, y: 550 })
+  })
+
+  it('keeps the bookmark strip reservation when the size change flips the side', () => {
+    const display = pair(0, 0, 1920, 1600)
+    const placed = placement([display], 1400, 550)
+    placed.setStrip(AGENT_STRIP_WIDTH)
+    placed.setExpanded(true)
+    const after = placed.setPanelSize({ width: 480, height: 660 })
+    assert.equal(after.vertical, 'down')
+    assert.equal(after.strip, AGENT_STRIP_WIDTH)
+    const bounds = lastBounds.get(placed)
+    assert.ok(bounds)
+    assert.equal(bounds.width, 480 + 2 * CHROME_INSET + AGENT_STRIP_WIDTH)
+    assert.deepEqual(ballOriginFromWindow(bounds, after), { x: 1400, y: 550 })
+  })
+
+  it('fits the panel and the ball back into a work area that shrank', () => {
+    const display: { bounds: Rect; workArea: Rect } = {
+      bounds: { x: 0, y: 0, width: 1920, height: 1080 },
+      workArea: { x: 0, y: 0, width: 1920, height: 1080 },
+    }
+    let bounds: Rect = {
+      x: 1600 - CHROME_INSET,
+      y: 500 - CHROME_INSET,
+      width: BALL_WINDOW_SIZE,
+      height: BALL_WINDOW_SIZE,
+    }
+    const placed = new FloatingPlacement({
+      getBounds: () => ({ ...bounds }),
+      setBounds(next) { bounds = { ...next }; lastBounds.set(placed, { ...next }) },
+    }, () => display, () => [display.bounds], { width: 560, height: 760 })
+    placed.setExpanded(true)
+    // The monitor is unplugged and the window lands on a small remote display.
+    display.bounds = { x: 0, y: 0, width: 1024, height: 600 }
+    display.workArea = { x: 0, y: 0, width: 1024, height: 600 }
+    const state = placed.reflow()
+    assert.equal(state.expanded, true)
+    const size = placed.panelSize()
+    assert.ok(size.width <= 1024 - 32, `width ${size.width}`)
+    assert.ok(size.height <= 600 - 32, `height ${size.height}`)
+    const after = lastBounds.get(placed)
+    assert.ok(after)
+    const origin = ballOriginFromWindow(after, state)
+    assert.ok(origin.x >= 0 && origin.x + 72 <= 1024, `ball x ${origin.x}`)
+    assert.ok(origin.y >= 0 && origin.y + 72 <= 600, `ball y ${origin.y}`)
+  })
+})
+
 const lastBounds = new WeakMap<FloatingPlacement, Rect>()
 
 function pair(x: number, y: number, width: number, height: number): { bounds: Rect; workArea: Rect } {

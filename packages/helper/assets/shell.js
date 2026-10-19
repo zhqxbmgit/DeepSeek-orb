@@ -7,14 +7,20 @@ import {
 } from './transcript-model.js'
 import { upgradeCodeBlocks } from './highlight.js'
 import { typesetMath } from './math.js'
+import { mergePastedText } from './composer-text.js'
+import { describeTaskStatus } from './background-status.js'
+import { createSubmitTracker } from './submit-confirmation.js'
 import {
   icon, THINK, CHEVRON_DOWN, CHEVRON_UP, SEARCH, GLOBE, BROWSE, EDIT, CODE, API, SPARKLE, COPY, CHECK, CLOSE, stateSpinner,
 } from './icons.js'
 
 const api = window.dshOrb
-const COLLAPSE_MS = 180
 const ANIMATION_MS = 300
 const HINT_MS = 2600
+/** How long a sent task may wait for the host's turn start before the Send button unlocks. */
+const SUBMIT_TIMEOUT_MS = 6000
+/** How long the stop button stays disabled before a failed cancel releases it. */
+const STOP_TIMEOUT_MS = 6000
 const DOCK_HOVER_DELAY_MS = 800
 const DOCK_DRAG_OFF_PX = 24
 const COMPOSER_MIN_PX = 72
@@ -27,7 +33,7 @@ const AGENT_ALERT_ICON = '<path d="M8 2.2L14.6 13.4H1.4L8 2.2Z" stroke="currentC
 
 const zh = {
   title: '桌面 agent',
-  stop: '停止',
+  stop: '停止当前对话',
   fresh: '新建',
   history: '历史',
   historyEmpty: '还没有 Computer Use 对话。',
@@ -80,10 +86,57 @@ const zh = {
   agentOpen: '点击在主窗口打开',
   agentDismiss: '移除这张书签（不打开主窗口）',
   noticeTitle: '后台任务报告',
+  collapse: '收起',
+  settings: '设置',
+  mainWindow: '主窗口',
+  move: '移动',
+  sizeLabel: '大小',
+  smaller: '缩小面板',
+  larger: '放大面板',
+  paste: '粘贴任务',
+  send: '发送',
+  sending: '发送中…',
+  needText: '请先输入任务',
+  clipboardEmpty: '剪贴板里没有文本',
+  clipboardFailed: '读取剪贴板失败，请重试',
+  pasteAdded: '已粘贴，点击发送才会执行',
+  pasteAppended: '已追加到现有草稿，点击发送才会执行',
+  pasteTruncated: '剪贴板文本过长，已粘贴能容纳的部分',
+  pasteBusy: '正在读取剪贴板…',
+  sizeChanged: (width, height) => `面板大小：${width} × ${height}`,
+  sizeLimit: '已经到面板大小的极限',
+  sizeFailed: '无法调整面板大小',
+  openingMain: '正在打开主窗口…',
+  openingSettings: '正在打开设置…',
+  taskIdle: '本对话空闲',
+  taskRunning: '本对话运行中',
+  taskBackgroundRunning: (count) => `后台 ${count} 个任务运行中`,
+  taskBackgroundDone: (count) => `后台 ${count} 个任务已完成`,
+  taskBackgroundStopped: (count) => `后台 ${count} 个任务已停止`,
+  stopNote: '停止只作用于本对话，后台任务继续运行；已执行的操作不会撤销',
+  stopping: '正在停止…',
+  stopRequested: '已请求停止本对话；已执行的操作不会撤销',
+  stopIdle: '当前没有正在运行的对话',
+  submitUnconfirmedRestored: '未收到提交确认；任务已放回输入框。原请求是否被接收仍未知，再次发送是一次新的提交。',
+  submitUnconfirmedKept: '未收到提交确认；输入框已有草稿，任务未放回。可在「未确认的提交」中复制或放回。',
+  submitConfirmedLate: 'Host 已确认这条提交。',
+  submitConfirmedLateEdited: 'Host 已确认这条提交；你修改过的输入内容保持不变。',
+  unconfirmedTitle: '未确认的提交',
+  unconfirmedNote: '已发送，但还没收到 Host 确认；原请求是否被接收仍未知。再次发送是一次新的提交。',
+  unconfirmedCopy: '复制',
+  unconfirmedRestore: '放回输入框',
+  unconfirmedRemove: '移除记录',
+  unconfirmedCopied: '已复制这条任务；原请求是否被接收仍未知。',
+  unconfirmedRestored: '已放回输入框；再次发送是一次新的提交。',
+  unconfirmedRestoreBlocked: '输入框已有草稿，未覆盖；可先复制这条任务。',
+  unconfirmedRemoved: '已移除这条未确认记录；输入框内容未改动。',
+  badgeRunning: '运行中',
+  badgeDone: '有未查看的完成结果',
+  badgeStopped: '有未查看的后台任务（含已停止）',
 }
 const en = {
   title: 'Desktop agent',
-  stop: 'Stop',
+  stop: 'Stop this chat',
   fresh: 'New',
   history: 'History',
   historyEmpty: 'No Computer Use chats yet.',
@@ -136,6 +189,53 @@ const en = {
   agentOpen: 'Click to open in the main window',
   agentDismiss: 'Remove this bookmark without opening the main window',
   noticeTitle: 'Background task report',
+  collapse: 'Collapse',
+  settings: 'Settings',
+  mainWindow: 'Main window',
+  move: 'Move',
+  sizeLabel: 'Size',
+  smaller: 'Smaller panel',
+  larger: 'Larger panel',
+  paste: 'Paste task',
+  send: 'Send',
+  sending: 'Sending…',
+  needText: 'Type the task first',
+  clipboardEmpty: 'There is no text on the clipboard',
+  clipboardFailed: 'The clipboard could not be read — try again',
+  pasteAdded: 'Pasted — it runs only when you press Send',
+  pasteAppended: 'Added to the existing draft — it runs only when you press Send',
+  pasteTruncated: 'The clipboard was too long; the part that fits was pasted',
+  pasteBusy: 'Reading the clipboard…',
+  sizeChanged: (width, height) => `Panel size: ${width} × ${height}`,
+  sizeLimit: 'That is the end of the size range',
+  sizeFailed: 'The panel could not be resized',
+  openingMain: 'Opening the main window…',
+  openingSettings: 'Opening settings…',
+  taskIdle: 'This chat is idle',
+  taskRunning: 'This chat is running',
+  taskBackgroundRunning: (count) => `${count} background ${count === 1 ? 'task is' : 'tasks are'} running`,
+  taskBackgroundDone: (count) => `${count} background ${count === 1 ? 'task has' : 'tasks have'} finished`,
+  taskBackgroundStopped: (count) => `${count} background ${count === 1 ? 'task was' : 'tasks were'} stopped`,
+  stopNote: 'Stop affects this chat only; background tasks keep running, and steps already taken are not undone',
+  stopping: 'Stopping…',
+  stopRequested: 'Stop requested for this chat; work already done is not undone',
+  stopIdle: 'No chat is running',
+  submitUnconfirmedRestored: 'No confirmation arrived; the task is back in the composer. Whether the original request reached the Host is still unknown — sending again is a new submission.',
+  submitUnconfirmedKept: 'No confirmation arrived and the composer already holds a draft, so the task was not put back. Copy or restore it from “Unconfirmed submissions”.',
+  submitConfirmedLate: 'The Host confirmed this submission.',
+  submitConfirmedLateEdited: 'The Host confirmed this submission; the text you edited is left untouched.',
+  unconfirmedTitle: 'Unconfirmed submissions',
+  unconfirmedNote: 'Sent, but the Host has not confirmed it yet. Whether the original request reached the Host is unknown; sending again is a new submission.',
+  unconfirmedCopy: 'Copy',
+  unconfirmedRestore: 'Put in composer',
+  unconfirmedRemove: 'Remove record',
+  unconfirmedCopied: 'Task copied. Whether the original request reached the Host is still unknown.',
+  unconfirmedRestored: 'Put in the composer; sending it again is a new submission.',
+  unconfirmedRestoreBlocked: 'The composer already holds a draft, so it was not overwritten — copy the task first.',
+  unconfirmedRemoved: 'Unconfirmed record removed; the composer was left unchanged.',
+  badgeRunning: 'Running',
+  badgeDone: 'Unseen completed task',
+  badgeStopped: 'Unseen background task (one or more stopped)',
 }
 
 const PROMPT_LIMIT = 8000
@@ -272,6 +372,22 @@ function main() {
   const hint = document.querySelector('#hint')
   const prompt = document.querySelector('#prompt')
   const composer = document.querySelector('#composer')
+  const collapseButton = document.querySelector('#collapse')
+  const openSettingsButton = document.querySelector('#open-settings')
+  const openMainButton = document.querySelector('#open-main')
+  const moveGrip = document.querySelector('#move-grip')
+  const panelSmaller = document.querySelector('#panel-smaller')
+  const panelLarger = document.querySelector('#panel-larger')
+  const sizeLabel = document.querySelector('#size-label')
+  const pasteButton = document.querySelector('#paste')
+  const sendButton = document.querySelector('#send')
+  const taskState = document.querySelector('#task-state')
+  const unconfirmedRoot = document.querySelector('#unconfirmed')
+  const unconfirmedTitle = document.querySelector('#unconfirmed-title')
+  const unconfirmedNote = document.querySelector('#unconfirmed-note')
+  const unconfirmedList = document.querySelector('#unconfirmed-list')
+  const turnbarNote = document.querySelector('#turnbar-note')
+  const ballBadge = document.querySelector('#ball-badge')
   applyStaticText()
 
   let expanded = false
@@ -286,7 +402,8 @@ function main() {
   let dragging = false
   let skipClick = false
   let skipDockCommit = false
-  let suppressExpand = false
+  /** The move grip is dragging the open panel; it must never dock or collapse it. */
+  let movingPanel = false
   let docked
   let dockHoverArmed = true
   let dockPointerInside = false
@@ -316,6 +433,26 @@ function main() {
   // Last message per block key: the locale refresh re-renders from it.
   const blockData = new Map()
   let lastTccStatus
+  /** A submit is in flight until the host starts the turn (or the safety timer fires). */
+  let submitting = false
+  let submitTimer
+  /** The tracker entry currently holding the send lock, or null. */
+  let inFlightEntryId = null
+  /**
+   * Set only when the timeout itself put a task into the composer. A late Host echo may
+   * clear that text again, but only while it is still exactly the auto-filled content.
+   */
+  let autoFilled = null
+  /** The paste button answers one click at a time; a slow clipboard read cannot double-insert. */
+  let pasteBusy = false
+  /** The stop button stays disabled until the turn actually ends, or the request times out. */
+  let stopPending = false
+  let stopTimer
+  /** This conversation's current turn start, for the elapsed clock in the task line. */
+  let turnStartedAt
+  let taskClock
+  /** Waits for the Host's own `user:` block instead of drawing a second user bubble. */
+  const submitTracker = createSubmitTracker()
 
   /**
    * Re-apply every static label. Called at startup and on locale changes;
@@ -360,6 +497,29 @@ function main() {
     for (const option of permissionMenu.querySelectorAll('button')) {
       option.textContent = permissionText(option.dataset.preset)
     }
+    collapseButton.textContent = messages.collapse
+    collapseButton.title = messages.collapse
+    openSettingsButton.textContent = messages.settings
+    openSettingsButton.title = messages.settings
+    openMainButton.textContent = messages.mainWindow
+    openMainButton.title = messages.mainWindow
+    moveGrip.textContent = messages.move
+    moveGrip.title = messages.move
+    sizeLabel.textContent = messages.sizeLabel
+    panelSmaller.textContent = '\u2212'
+    panelSmaller.title = messages.smaller
+    panelSmaller.setAttribute('aria-label', messages.smaller)
+    panelLarger.textContent = '+'
+    panelLarger.title = messages.larger
+    panelLarger.setAttribute('aria-label', messages.larger)
+    pasteButton.textContent = messages.paste
+    pasteButton.title = messages.paste
+    sendButton.textContent = messages.send
+    sendButton.title = messages.send
+    turnbarNote.textContent = messages.stopNote
+    stopButton.textContent = messages.stop
+    unconfirmedTitle.textContent = messages.unconfirmedTitle
+    unconfirmedNote.textContent = messages.unconfirmedNote
   }
 
   /** Re-render every text surface after the dictionary switched. */
@@ -369,6 +529,11 @@ function main() {
     renderPermission()
     renderHistory()
     renderAgentStrip()
+    renderSendState()
+    renderTurnbar()
+    renderTaskState()
+    renderBadge()
+    renderUnconfirmed()
     if (pending !== undefined) renderQuestion()
     if (tccGateVisible && lastTccStatus) showTccGate(lastTccStatus)
     refreshProcessLabel(processGroup)
@@ -444,10 +609,30 @@ function main() {
 
   function setRunning(next, interrupted = false) {
     running = next
+    // A turn start may settle the send lock only when the Host's echo already confirmed
+    // the in-flight submission. A wake turn or a late turn for an older task must not
+    // unlock or forget a newer submission that is still waiting for its own echo.
+    if (next) releaseConfirmedSubmit()
+    stopPending = false
+    if (stopTimer !== undefined) {
+      clearTimeout(stopTimer)
+      stopTimer = undefined
+    }
+    if (next) {
+      turnStartedAt = Date.now()
+      startTaskClock()
+    } else {
+      turnStartedAt = undefined
+      stopTaskClock()
+    }
     if (pageClosed()) return
     document.body.classList.toggle('running', running)
     stop.hidden = !expanded || !running
     setWorkLocked(running)
+    renderSendState()
+    renderTurnbar()
+    renderTaskState()
+    renderBadge()
     syncGif()
     if (next) {
       // The conversation on screen is the one that may operate the desktop and the shell, so its
@@ -479,6 +664,207 @@ function main() {
       freezeProcess(processGroup)
       setProcessOpen(processGroup, false)
       refreshProcessLabel(processGroup)
+    }
+  }
+
+  function formatElapsed(ms) {
+    const total = Math.max(0, Math.floor(ms / 1000))
+    return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`
+  }
+
+  /** One model for both surfaces: the task line and the collapsed badge cannot disagree. */
+  function taskStatusModel() {
+    const elapsed = running && turnStartedAt !== undefined ? formatElapsed(Date.now() - turnStartedAt) : ''
+    return describeTaskStatus({ running, elapsed, items: agentItems, labels: messages })
+  }
+
+  /**
+   * The always-visible answer to "is this chat running, and is background work still
+   * going?". The current chat and each background state are named separately, so a stopped
+   * chat never reads as "everything stopped" while background work continues.
+   */
+  function renderTaskState() {
+    if (pageClosed()) return
+    const model = taskStatusModel()
+    taskState.textContent = model.text
+    taskState.dataset.state = model.state
+  }
+
+  function startTaskClock() {
+    stopTaskClock()
+    taskClock = setInterval(() => {
+      if (running) renderTaskState()
+    }, 1000)
+  }
+
+  function stopTaskClock() {
+    if (taskClock === undefined) return
+    clearInterval(taskClock)
+    taskClock = undefined
+  }
+
+  /**
+   * The collapsed ball's only status, drawn from the same model as the task line: a
+   * spinner while this chat or a background task runs, a check for unviewed completed
+   * work, and an exclamation for unviewed stopped work. A stopped task is never drawn as
+   * a green completion.
+   */
+  function renderBadge() {
+    if (pageClosed()) return
+    const badge = taskStatusModel().badge
+    const show = !expanded && docked === undefined && badge !== null
+    ballBadge.hidden = !show
+    ballBadge.replaceChildren()
+    if (!show || badge === null) return
+    ballBadge.dataset.kind = badge.kind
+    ballBadge.title = badge.title
+    if (badge.kind === 'running') {
+      const spinner = document.createElement('span')
+      spinner.className = 'ball-spinner'
+      ballBadge.append(spinner)
+      // The spinner is this chat; a number beside it is how many background tasks are
+      // still running. Both facts stay visible at once.
+      if (badge.count > 0) ballBadge.append(String(badge.count))
+      return
+    }
+    if (badge.kind === 'done') {
+      ballBadge.append(`\u2713${badge.count > 1 ? String(badge.count) : ''}`)
+      return
+    }
+    ballBadge.append(`!${badge.count > 1 ? String(badge.count) : ''}`)
+  }
+
+  /** The stop bar replaces the composer while this chat runs; its text names its scope. */
+  function renderTurnbar() {
+    if (pageClosed()) return
+    stop.disabled = stopPending
+    stop.textContent = stopPending ? messages.stopping : messages.stop
+    turnbar.hidden = !(running && expanded && !tccGateVisible)
+  }
+
+  /** Send button label and the dimmed empty state. Enabled while empty so a click can explain. */
+  function renderSendState() {
+    if (pageClosed()) return
+    const empty = promptText(prompt).trim() === ''
+    sendButton.disabled = submitting
+    sendButton.dataset.empty = empty && !submitting ? 'true' : 'false'
+    sendButton.textContent = submitting ? messages.sending : messages.send
+    if (!pasteBusy) pasteButton.textContent = messages.paste
+    pasteButton.disabled = pasteBusy || submitting
+  }
+
+  /**
+   * The unconfirmed card. The Host announces every accepted prompt itself as a
+   * `user:<uuid>` block; the page draws no local user bubble, and this card only holds the
+   * submissions whose echo has not arrived yet. A timed-out task stays here (and can be
+   * copied or restored) until its own late echo or the user removes it.
+   */
+  function renderUnconfirmed() {
+    if (pageClosed()) return
+    // Only unresolved (timed-out) entries are shown. A normal submission is in flight for
+    // a few milliseconds and must not flash a card.
+    const entries = submitTracker.list().filter((entry) => entry.status === 'timedOut')
+    unconfirmedRoot.hidden = entries.length === 0
+    unconfirmedList.replaceChildren()
+    if (entries.length === 0) return
+    for (const entry of entries) {
+      const item = document.createElement('li')
+      item.className = 'unconfirmed-item'
+      const text = document.createElement('p')
+      text.className = 'unconfirmed-text'
+      text.textContent = entry.text
+      text.title = entry.text
+      const actions = document.createElement('div')
+      actions.className = 'unconfirmed-actions'
+
+      const copy = document.createElement('button')
+      copy.type = 'button'
+      copy.className = 'unconfirmed-copy'
+      copy.textContent = messages.unconfirmedCopy
+      copy.addEventListener('click', () => {
+        if (typeof api.copy === 'function') api.copy(entry.text)
+        showHint(messages.unconfirmedCopied)
+      })
+
+      const restore = document.createElement('button')
+      restore.type = 'button'
+      restore.className = 'unconfirmed-restore'
+      restore.textContent = messages.unconfirmedRestore
+      restore.addEventListener('click', () => { restoreUnconfirmed(entry) })
+
+      const remove = document.createElement('button')
+      remove.type = 'button'
+      remove.className = 'unconfirmed-remove'
+      remove.textContent = messages.unconfirmedRemove
+      remove.addEventListener('click', () => {
+        submitTracker.remove(entry.id)
+        if (autoFilled !== null && autoFilled.entryId === entry.id) autoFilled = null
+        renderUnconfirmed()
+        showHint(messages.unconfirmedRemoved)
+      })
+
+      actions.append(copy, restore, remove)
+      item.append(text, actions)
+      unconfirmedList.append(item)
+    }
+  }
+
+  /**
+   * Put one unconfirmed task back into an empty composer. A draft already there is never
+   * overwritten or concatenated; the user can copy the task instead.
+   */
+  function restoreUnconfirmed(entry) {
+    if (promptText(prompt).trim() !== '') {
+      showHint(messages.unconfirmedRestoreBlocked)
+      return
+    }
+    prompt.textContent = entry.text
+    prompt.classList.remove('prompt-empty')
+    autoFilled = null
+    syncComposerHeight()
+    showHint(messages.unconfirmedRestored)
+  }
+
+  /**
+   * A Host echo was matched to one tracker entry. If the timeout had auto-filled that exact
+   * task and it is still untouched, clear it so an already-delivered task is not sitting
+   * there ready to be sent twice. Anything the user edited is left alone.
+   */
+  function handleConfirmed(entry) {
+    const auto = autoFilled
+    if (auto !== null && auto.entryId === entry.id) {
+      // Compare the raw text: even a leading/trailing space the user added counts as an
+      // edit, and then the late echo must leave the composer alone.
+      const untouched = promptText(prompt) === auto.text
+      autoFilled = null
+      if (untouched) {
+        clearPrompt()
+        showHint(messages.submitConfirmedLate)
+      } else if (promptText(prompt).trim() === '') {
+        showHint(messages.submitConfirmedLate)
+      } else {
+        showHint(messages.submitConfirmedLateEdited)
+      }
+    } else if (entry.status === 'timedOut') {
+      showHint(messages.submitConfirmedLate)
+    }
+    renderUnconfirmed()
+    renderSendState()
+  }
+
+  /**
+   * A turn started. Only release the send lock when the Host's echo already confirmed the
+   * in-flight submission; a wake turn or a late turn for an older task must not unlock (or
+   * forget) a newer submission that is still waiting for its own echo.
+   */
+  function releaseConfirmedSubmit() {
+    if (inFlightEntryId === null) return
+    if (submitTracker.has(inFlightEntryId)) return
+    inFlightEntryId = null
+    submitting = false
+    if (submitTimer !== undefined) {
+      clearTimeout(submitTimer)
+      submitTimer = undefined
     }
   }
 
@@ -515,6 +901,7 @@ function main() {
     if (next === undefined) {
       dockTab.hidden = true
       dockHoverArmed = true
+      renderBadge()
       return
     }
     if (becameDocked) {
@@ -526,6 +913,7 @@ function main() {
       }, DOCK_HOVER_DELAY_MS)
     }
     dockTab.hidden = false
+    renderBadge()
   }
 
   function applyDockedFrom(result) {
@@ -568,11 +956,17 @@ function main() {
     pointerHeld = false
     pointerPointerId = undefined
     dragging = false
+    const panelDrag = movingPanel
+    movingPanel = false
     if (!moved) return false
     skipClick = true
     const skipDock = skipDockCommit
     skipDockCommit = false
-    if (!skipDock) applyDockedFrom(await api.dragEnd(!(running || asking())))
+    if (!skipDock) {
+      // A panel drag keeps the window open and never docks: the release re-anchors the
+      // panel around its ball, and the helper saves the new origin.
+      applyDockedFrom(await api.dragEnd(panelDrag ? false : !(running || asking())))
+    }
     return true
   }
 
@@ -591,19 +985,11 @@ function main() {
     api.dragBegin()
   }
 
-  function syncExpand() {
-    if (pointerHeld || dragging) return
-    if (docked !== undefined) {
-      if (dockHoverArmed) void unsnapDocked()
-      return
-    }
-    if (suppressExpand) return
-    void setExpanded(true)
-  }
-
+  // The ball no longer opens on hover. Hover was what closed the panel again the moment
+  // the pointer went to the virtual keyboard or another window; here a left click opens
+  // it, and only the collapse button, a second click on the ball, or a drag closes it.
   async function unsnapDocked() {
     if (docked === undefined) return
-    suppressExpand = true
     if (dragging) skipDockCommit = true
     applyDocked(undefined)
     applyDockedFrom(await api.unsnap())
@@ -628,6 +1014,9 @@ function main() {
       document.body.classList.add('expanded')
       stop.hidden = !running
       renderAgentStrip()
+      renderBadge()
+      renderTaskState()
+      renderTurnbar()
       syncGif()
       return
     }
@@ -635,6 +1024,9 @@ function main() {
     expanded = false
     document.body.classList.remove('expanded')
     renderAgentStrip()
+    renderBadge()
+    renderTaskState()
+    renderTurnbar()
     if (docked !== undefined) dockTab.hidden = false
     stop.hidden = true
     syncGif()
@@ -650,13 +1042,14 @@ function main() {
     }, ANIMATION_MS)
   }
 
-  function scheduleCollapse() {
-    if (pinned || running || asking() || dragging) return
-    if (collapseTimer !== undefined) clearTimeout(collapseTimer)
-    collapseTimer = setTimeout(() => {
-      collapseTimer = undefined
-      void setExpanded(false)
-    }, COLLAPSE_MS)
+  /**
+   * The explicit collapse. It is allowed even while a turn runs: the user may want the
+   * screen back, and the ball badge plus the task line keep saying that work continues.
+   */
+  async function collapsePanel() {
+    pinned = false
+    document.body.classList.remove('pinned')
+    await setExpanded(false, true)
   }
 
   /**
@@ -727,6 +1120,7 @@ function main() {
   function syncComposerHeight() {
     const empty = promptText(prompt).trim() === ''
     prompt.classList.toggle('prompt-empty', empty)
+    renderSendState()
     if (empty) {
       document.body.classList.remove('composer-capped')
       document.body.style.setProperty('--composer-height', 'var(--ball)')
@@ -747,6 +1141,7 @@ function main() {
     prompt.classList.add('prompt-empty')
     document.body.classList.remove('composer-capped')
     document.body.style.setProperty('--composer-height', 'var(--ball)')
+    renderSendState()
   }
 
   function refreshProcessLabel(group) {
@@ -2159,13 +2554,15 @@ function main() {
     // press flags stuck and the panel permanently unable to expand. Only a reported
     // "no buttons" counts: an absent field must not end a live drag.
     if (pointerHeld && typeof event.buttons === 'number' && event.buttons === 0) void finishGesture()
-    syncExpand()
+    // A docked ball is hidden behind its tab: bringing it back is still a hover, because
+    // hovering reveals it and the ball remains the only thing to click.
+    if (docked !== undefined && dockHoverArmed) void unsnapDocked()
   })
   document.body.addEventListener('pointerleave', () => {
     dockPointerInside = false
-    suppressExpand = false
     if (pointerHeld || dragging) return
-    scheduleCollapse()
+    // Leaving the window is not a collapse: the pointer goes to Free Virtual Keyboard,
+    // to the taskbar, or to another window constantly, and the panel must stay put.
   })
 
   ball.addEventListener('pointerdown', (event) => {
@@ -2197,12 +2594,46 @@ function main() {
       skipClick = false
       return
     }
-    pinned = !pinned
-    document.body.classList.toggle('pinned', pinned)
-    if (pinned) await setExpanded(true)
+    // One left click opens a closed panel; a second one closes it. There is no hover
+    // step in between, so a click always means what it says.
+    if (expanded) {
+      await collapsePanel()
+      return
+    }
+    pinned = true
+    document.body.classList.add('pinned')
+    await setExpanded(true)
   })
   ball.addEventListener('pointercancel', () => { void finishGesture() })
   ball.addEventListener('lostpointercapture', () => { void finishGesture() })
+
+  // The move grip: a full-width button in the tool row that drags the open panel with the
+  // left button. It reuses the ball's drag channel — the helper reads the OS cursor — but
+  // never collapses the panel and never docks.
+  moveGrip.addEventListener('pointerdown', (event) => {
+    if (!isPrimaryButton(event)) return
+    dragging = false
+    skipClick = false
+    movingPanel = true
+    beginPointer(moveGrip, event)
+    api.dragPress()
+  })
+  moveGrip.addEventListener('pointermove', (event) => {
+    if (!ownsPointer(event)) return
+    if (!primaryButtonHeld(event)) {
+      void finishGesture()
+      return
+    }
+    if (!dragging) {
+      if (Math.hypot(event.clientX - pressAt.x, event.clientY - pressAt.y) <= 4) return
+      dragging = true
+      api.dragBegin()
+    }
+    api.dragMove(false)
+  })
+  moveGrip.addEventListener('pointerup', () => { void finishGesture() })
+  moveGrip.addEventListener('pointercancel', () => { void finishGesture() })
+  moveGrip.addEventListener('lostpointercapture', () => { void finishGesture() })
 
   dockTab.addEventListener('pointerdown', (event) => {
     if (!isPrimaryButton(event)) return
@@ -2317,24 +2748,161 @@ function main() {
     void submitComposer()
   })
   async function submitComposer() {
+    // One task per click: a second click, Enter, or a double tap cannot resend a payload
+    // that is still in flight. The lock clears when the Host's echo and then the turn
+    // start both arrived, or when the echo timer expires.
+    if (submitting) return
     const text = promptText(prompt).trim()
-    if (text === '') return
+    if (text === '') {
+      showHint(messages.needText)
+      return
+    }
     if (text.length > PROMPT_LIMIT) {
       status.textContent = messages.tooLong
       return
     }
-    const ready = await refreshTccGate({ forceShow: true })
-    if (!ready) {
-      await setExpanded(true)
+    submitting = true
+    renderSendState()
+    let entryId = null
+    let sent = false
+    try {
+      const ready = await refreshTccGate({ forceShow: true })
+      if (!ready) {
+        await setExpanded(true)
+        return
+      }
+      const payload = composeSend(text, attachedSelection)
+      // The Host echoes the accepted prompt as a user block; wait for that instead of
+      // drawing a local copy. A late echo still matches this entry, so two deliberately
+      // identical tasks remain two separate sends.
+      entryId = submitTracker.expect(payload, sessionId)
+      if (entryId === null) return
+      inFlightEntryId = entryId
+      setAttachedSelection('')
+      setHistoryOpen(false)
+      setPermissionOpen(false)
+      // Clear only after the IPC write succeeded: a throwing bridge leaves the draft.
+      api.send(payload)
+      clearPrompt()
+      sent = true
+      if (submitTimer !== undefined) clearTimeout(submitTimer)
+      submitTimer = setTimeout(() => { expireSubmit(entryId) }, SUBMIT_TIMEOUT_MS)
+    } finally {
+      if (!sent) {
+        if (entryId !== null) submitTracker.remove(entryId)
+        if (inFlightEntryId === entryId) inFlightEntryId = null
+        submitting = false
+        renderSendState()
+      }
+    }
+  }
+
+  /**
+   * No Host echo arrived in time. The entry is NOT discarded: it becomes a timed-out
+   * record that a late echo can still confirm and that the user can copy or restore.
+   * Auto-fill only happens into an empty composer; an existing draft is never overwritten
+   * or concatenated, and the notice says exactly which of the two happened.
+   */
+  function expireSubmit(entryId) {
+    submitTimer = undefined
+    if (inFlightEntryId === entryId) inFlightEntryId = null
+    submitting = false
+    const entry = submitTracker.expire(entryId)
+    if (entry !== null) {
+      if (promptText(prompt).trim() === '') {
+        prompt.textContent = entry.text
+        prompt.classList.remove('prompt-empty')
+        syncComposerHeight()
+        autoFilled = { entryId: entry.id, text: entry.text }
+        showHint(messages.submitUnconfirmedRestored)
+      } else {
+        showHint(messages.submitUnconfirmedKept)
+      }
+    }
+    renderUnconfirmed()
+    renderSendState()
+  }
+
+  function focusPromptEnd() {
+    prompt.focus()
+    const range = document.createRange()
+    range.selectNodeContents(prompt)
+    range.collapse(false)
+    const selection = window.getSelection()
+    selection?.removeAllRanges()
+    selection?.addRange(range)
+  }
+
+  /**
+   * Paste reads the clipboard in the helper process (this window rests unfocused) and
+   * inserts the text into the composer. It never sends, keeps the draft, and always says
+   * what it did — an empty or unreadable clipboard is a visible answer, not silence.
+   */
+  async function pasteTask() {
+    if (pasteBusy || submitting) return
+    if (typeof api.readClipboard !== 'function') {
+      showHint(messages.clipboardFailed)
       return
     }
-    const payload = composeSend(text, attachedSelection)
-    clearPrompt()
-    setAttachedSelection('')
-    setHistoryOpen(false)
-    setPermissionOpen(false)
-    api.send(payload)
+    pasteBusy = true
+    renderSendState()
+    try {
+      const result = await api.readClipboard()
+      if (result === null || typeof result !== 'object' || result.ok !== true) {
+        showHint(result?.reason === 'empty' ? messages.clipboardEmpty : messages.clipboardFailed)
+        return
+      }
+      const clip = typeof result.text === 'string' ? result.text : ''
+      if (clip.trim() === '') {
+        showHint(messages.clipboardEmpty)
+        return
+      }
+      const merged = mergePastedText(promptText(prompt), clip, PROMPT_LIMIT)
+      if (!merged.inserted) {
+        showHint(messages.pasteTruncated)
+        return
+      }
+      prompt.textContent = merged.text
+      prompt.classList.remove('prompt-empty')
+      syncComposerHeight()
+      focusPromptEnd()
+      if (merged.truncated) showHint(messages.pasteTruncated)
+      else showHint(merged.appended ? messages.pasteAppended : messages.pasteAdded)
+    } catch {
+      showHint(messages.clipboardFailed)
+    } finally {
+      pasteBusy = false
+      renderSendState()
+    }
   }
+
+  async function changePanelSize(direction) {
+    if (typeof api.resizePanel !== 'function') {
+      showHint(messages.sizeFailed)
+      return
+    }
+    try {
+      const result = await api.resizePanel(direction)
+      if (result === null || typeof result !== 'object' || result.ok !== true) {
+        showHint(messages.sizeFailed)
+        return
+      }
+      if (result.changed !== true) {
+        showHint(messages.sizeLimit)
+        return
+      }
+      // The helper returns the layout it actually applied. Adopt it before showing the
+      // hint, so a size step that crosses the up/down boundary flips the ball, composer
+      // and tool rows in the same frame as the window.
+      if (result.state !== null && typeof result.state === 'object') {
+        applyDirection(result.state)
+      }
+      showHint(messages.sizeChanged(result.width, result.height))
+    } catch {
+      showHint(messages.sizeFailed)
+    }
+  }
+
   prompt.addEventListener('input', syncComposerHeight)
   prompt.addEventListener('keydown', (event) => {
     if (event.key !== 'Enter' || event.shiftKey || isComposing(event)) return
@@ -2355,6 +2923,18 @@ function main() {
       pinBall()
     }
   })
+  pasteButton.addEventListener('click', () => { void pasteTask() })
+  collapseButton.addEventListener('click', () => { void collapsePanel() })
+  openSettingsButton.addEventListener('click', () => {
+    if (typeof api.openSettings === 'function') api.openSettings()
+    showHint(messages.openingSettings)
+  })
+  openMainButton.addEventListener('click', () => {
+    if (typeof api.openMain === 'function') api.openMain()
+    showHint(messages.openingMain)
+  })
+  panelSmaller.addEventListener('click', () => { void changePanelSize('smaller') })
+  panelLarger.addEventListener('click', () => { void changePanelSize('larger') })
 
   for (const preset of PERMISSION_PRESETS) {
     const item = document.createElement('li')
@@ -2399,7 +2979,25 @@ function main() {
     api.newSession()
     prompt.focus()
   })
-  stop.addEventListener('click', () => { api.stop() })
+  stop.addEventListener('click', () => {
+    if (!running) {
+      showHint(messages.stopIdle)
+      return
+    }
+    if (stopPending) return
+    stopPending = true
+    renderTurnbar()
+    api.stop()
+    // The host cancels this conversation's turn and nothing else; the notice says so
+    // instead of implying that already performed clicks or file edits are rolled back.
+    showHint(messages.stopRequested)
+    if (stopTimer !== undefined) clearTimeout(stopTimer)
+    stopTimer = setTimeout(() => {
+      stopTimer = undefined
+      stopPending = false
+      renderTurnbar()
+    }, STOP_TIMEOUT_MS)
+  })
   questionCancel.addEventListener('click', cancelQuestion)
   questionSkip.addEventListener('click', skipQuestion)
   questionContinue.addEventListener('click', continueFlow)
@@ -2432,7 +3030,13 @@ function main() {
     continueFlow()
   })
 
-  api.onBlock((block) => { stage(block) })
+  api.onBlock((block) => {
+    // A Host user block with a waiting payload is the only receipt this page draws. A
+    // late echo still resolves its own entry and never confirms a different submission.
+    const confirmed = submitTracker.observe(block, sessionId)
+    if (confirmed !== null) handleConfirmed(confirmed)
+    stage(block)
+  })
   api.onBlockDrop((key) => { stage({ type: 'block-drop', key }) })
   api.onTurn((turn) => { stage({ type: 'turn', ...(turn ?? {}) }) })
   api.onSession((id) => { sessionId = typeof id === 'string' ? id : '' })
@@ -2445,6 +3049,8 @@ function main() {
       ? items.filter((item) => item !== null && typeof item === 'object' && typeof item.sessionId === 'string')
       : [])
     renderAgentStrip()
+    renderTaskState()
+    renderBadge()
   })
   api.onExpandState?.((state) => {
     if (state !== null && typeof state === 'object') applyDirection(state)
@@ -2502,6 +3108,11 @@ function main() {
     renderQuestion()
   })
   syncGif()
+  renderSendState()
+  renderTaskState()
+  renderTurnbar()
+  renderBadge()
+  renderUnconfirmed()
   // A fresh page starts with no expansion or strip classes while the window keeps whatever
   // the host applied: ask for the geometry once, before the first hover, so the panel is
   // placed correctly even if the load raced the state message.

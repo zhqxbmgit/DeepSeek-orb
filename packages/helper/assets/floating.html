@@ -13,22 +13,35 @@
   <body>
     <div id="agent-strip" role="list" hidden></div>
     <section id="panel" hidden>
-      <button id="history" type="button" aria-pressed="false">
-        <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-          <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.5"></circle>
-          <path d="M8 4.5v4l2.5 1.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path>
-        </svg>
-      </button>
-      <div id="permission">
-        <button id="permission-button" type="button" aria-haspopup="listbox" aria-expanded="false">
-          <span id="permission-label"></span>
-          <svg viewBox="0 0 12 12" aria-hidden="true" focusable="false">
-            <path d="M3 4.5 6 8l3-3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path>
-          </svg>
-        </button>
-        <ul id="permission-menu" role="listbox" hidden></ul>
+      <div id="panel-tools">
+        <div id="tool-row-main">
+          <button id="collapse" type="button"></button>
+          <button id="open-settings" type="button"></button>
+          <button id="open-main" type="button"></button>
+          <button id="move-grip" type="button"></button>
+        </div>
+        <div id="tool-row-alt">
+          <button id="history" type="button" aria-pressed="false">
+            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+              <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.5"></circle>
+              <path d="M8 4.5v4l2.5 1.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path>
+            </svg>
+          </button>
+          <div id="permission">
+            <button id="permission-button" type="button" aria-haspopup="listbox" aria-expanded="false">
+              <span id="permission-label"></span>
+              <svg viewBox="0 0 12 12" aria-hidden="true" focusable="false">
+                <path d="M3 4.5 6 8l3-3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path>
+              </svg>
+            </button>
+            <ul id="permission-menu" role="listbox" hidden></ul>
+          </div>
+          <button id="new-conversation" type="button">+</button>
+          <span id="size-label"></span>
+          <button id="panel-smaller" type="button"></button>
+          <button id="panel-larger" type="button"></button>
+        </div>
       </div>
-      <button id="new-conversation" type="button">+</button>
       <div id="transcript" role="log" aria-live="polite"></div>
       <div id="question" hidden>
         <div class="question-card">
@@ -81,22 +94,36 @@
           <button id="tcc-relaunch" type="button" hidden></button>
         </div>
       </div>
+      <section id="unconfirmed" hidden>
+        <h3 id="unconfirmed-title"></h3>
+        <p id="unconfirmed-note"></p>
+        <ul id="unconfirmed-list"></ul>
+      </section>
+      <p id="task-state" role="status"></p>
       <p id="status" role="status"></p>
       <p id="hint" role="status" hidden></p>
       <div id="selection-chip" hidden>
         <span id="selection-chip-text"></span>
         <button id="selection-chip-dismiss" type="button"></button>
       </div>
+      <div id="turnbar" hidden>
+        <p id="turnbar-note"></p>
+        <button id="stop" type="button"></button>
+      </div>
+      <div id="paste-row">
+        <button id="paste" type="button"></button>
+      </div>
       <form id="composer">
         <label id="input-label"></label>
         <div id="prompt" class="prompt-empty" role="textbox" aria-multiline="true" aria-labelledby="input-label" contenteditable="true"></div>
+        <button id="send" type="submit"></button>
       </form>
     </section>
     <button id="ball" type="button">
       <img id="ball-gif" src="deepseek-avatar-square.gif" alt="" draggable="false">
+      <span id="ball-badge" hidden></span>
     </button>
     <button id="dock-tab" type="button" hidden aria-hidden="true"></button>
-    <button id="stop" type="button" hidden></button>
     <script type="module" src="shell.js"></script>
   </body>
 </html>
