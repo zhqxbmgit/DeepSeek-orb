@@ -35,7 +35,7 @@ afterEach(async () => {
  * is what keeps them out of the host catalog), so their names are not restrictable from that scope
  * at all: the call throws. A restriction from an ancestor cannot reach them either, because the
  * scope's own layer wins the name. That leaves the monotonic guard, which is what
- * `screen-owner.ts` drives.
+ * a host can use when it needs execution-time ownership checks.
  */
 describe('desktop ownership mechanism', () => {
   it('cannot hide the GUI tools with a restriction, but a scoped guard does decide per agent', async () => {

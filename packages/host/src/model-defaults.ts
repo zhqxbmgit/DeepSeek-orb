@@ -1,15 +1,14 @@
 /**
- * Which model the two tracks use while the user has not picked one.
+ * Which model the background track uses while the user has not picked one.
  *
  * The product owns that default: `agentDefaultModel.currentSelection()` is what a new Agent is
  * created with, and the account sign-in flow rewrites it to the account route when no provider
- * API key is configured. The ball follows it, so an account-only user is never left on the
- * API-key route. Picking a model in the ball menu or the settings page pins that track; a track
- * the user never touched keeps following.
+ * API key is configured. The background Agent follows it, so an account-only user is never
+ * left on the API-key route. Picking a model in settings pins that track; a track the user
+ * never touched keeps following.
  *
- * `refreshModelFallback` is called where the value has to be right: the plugin entry warms it
- * for the settings page, `adopt` refreshes it just before a session gets its model, and
- * `publishChrome` refreshes it for the ball menu and re-selects a live session when it moved.
+ * `refreshModelFallback` is called once by the plugin entry, so the value the settings page
+ * shows is the value a new background session would use.
  */
 
 import { normalizeCatalog, type CatalogGroup, type ModelCatalog } from './catalog.ts'

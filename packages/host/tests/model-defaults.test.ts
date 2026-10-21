@@ -39,7 +39,7 @@ describe('model defaults', () => {
     // The account route is what the sign-in wrote and the catalog advertises it, so it
     // wins even though the shipped pair is advertised too.
     assert.deepEqual(fallbackSelection([official, account], flash), flash)
-    // A product default the catalog dropped must not strand the ball on it.
+    // A product default the catalog dropped must not strand the background Agent on it.
     assert.deepEqual(
       fallbackSelection([official], { provider: 'deepseek-account', model: 'deepseek-flash' }),
       DEFAULT_MODEL,
@@ -85,8 +85,8 @@ describe('model defaults', () => {
     const refreshed = await refreshModelFallback(source, store)
     assert.deepEqual(refreshed.catalog.groups.map((group) => group.id), ['deepseek-official', 'deepseek-account'])
     assert.equal(refreshed.changed, true)
-    assert.deepEqual(store.models(), { overlay: flash, background: flash })
-    // The same answer again is not a move: a live session must not re-select.
+    assert.deepEqual(store.backgroundModel(), flash)
+    // The same answer again is not a move.
     assert.equal((await refreshModelFallback(source, store)).changed, false)
   })
 
@@ -98,6 +98,6 @@ describe('model defaults', () => {
     }
     // The caller decides: the runtime keeps the previous fallback and logs the failure.
     await assert.rejects(refreshModelFallback(source, store), /catalog unavailable/)
-    assert.deepEqual(store.models().overlay, DEFAULT_MODEL)
+    assert.deepEqual(store.backgroundModel(), DEFAULT_MODEL)
   })
 })

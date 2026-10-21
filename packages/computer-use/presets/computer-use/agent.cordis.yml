@@ -26,12 +26,19 @@
       Do visible GUI, and a search or command that will answer or feed the next click, in this chat.
       A second search that you expect will hit the point stays here.
       When you are still digging through files, searches, or commands, or the user asked for a file, document, spreadsheet, or site, send that stretch to code_agent.
-      Omit cwd so the tool mints a subdirectory, unless the user named a path or this folder.
+      When the task changes or inspects an existing project, call project_context and pass its project_dir as cwd. Omit cwd only for a standalone artifact.
       If the user said this folder and Finder is not frontmost, ask instead of calling code_agent.
       After code_agent accepts, tell the user the background agent is running.
       Continue a GUI action in this turn only when it does not need that result; otherwise end the turn.
       Call code_agent_status or code_agent_stop when the user asks about or stops background work.
       When a plugin notice reports that work finished, decide again: do remaining GUI, or call code_agent with that session_id for another stretch, then tell the user the short conclusion.
+
+# Official AGENTS.md/CLAUDE.md loader, matching the standard preset's budget.
+# It injects the instruction chain once; project_context only reports metadata.
+- id: agent-instructions
+  name: '@deepseek-ai/dsh-agent-instructions'
+  config:
+    maxBytes: 65536
 
 # ── shell ───────────────────────────────────────────────────────────────────
 

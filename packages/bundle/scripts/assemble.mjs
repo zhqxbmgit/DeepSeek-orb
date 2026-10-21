@@ -10,8 +10,7 @@
  *   client.js                      settings page, browser half (from client-settings)
  *   dist/host/                     @dsh-orb/host
  *   dist/computer-use/             @dsh-orb/computer-use, including the ScreenCaptureKit helper
- *   dist/helper/                   Electron entry, preload scripts, assets
- *   dist/native-selection/         selection monitor sources and prebuilt library
+ *   dist/helper/                   observation-ribbon Electron entry and assets
  */
 
 import { chmod, cp, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises'
@@ -24,8 +23,6 @@ const packages = resolve(bundleRoot, '..')
 
 const OLD_CLIENT_ID = "id: '@dsh-orb/client-ui-settings-orb'"
 const NEW_CLIENT_ID = "id: 'dsh-orb'"
-const SELECTION_SPECIFIER = '"@dsh-orb/native-selection"'
-const SELECTION_RELATIVE = '"../native-selection/src/index.js"'
 
 /** Copy a workspace folder or file. A missing source is a build-order mistake, so fail loudly. */
 async function copyFrom(pkg, source, target) {
@@ -67,16 +64,12 @@ await copyFrom('host', 'lib', join(dist, 'host'))
 await copyFrom('computer-use', 'lib', join(dist, 'computer-use'))
 await chmod(join(dist, 'computer-use', 'macos-sck-capture'), 0o755)
 
-// The host reaches the helper at ../helper/lib/main.js and the selection monitor at ../native-selection/src.
+// The host reaches the ribbon helper at ../helper/lib/main.js.
 await copyFrom('helper', 'lib', join(dist, 'helper', 'lib'))
-await copyFrom('helper', 'preload.cjs', join(dist, 'helper', 'preload.cjs'))
-await copyFrom('helper', 'selection-preload.cjs', join(dist, 'helper', 'selection-preload.cjs'))
 await copyFrom('helper', 'assets', join(dist, 'helper', 'assets'))
 
-await copyFrom('native-selection', 'src', join(dist, 'native-selection', 'src'))
-await copyFrom('native-selection', 'prebuilds/darwin-universal', join(dist, 'native-selection', 'prebuilds', 'darwin-universal'))
-
-await rewrite(join(dist, 'host', 'index.js'), SELECTION_SPECIFIER, SELECTION_RELATIVE, 1)
+// Evidence scripts are invoked by absolute path from the project AGENTS.md.
+await copyFrom('bundle', 'runtime', join(stage, 'runtime'))
 
 if (!inPlace) {
   await cp(join(bundleRoot, 'package.json'), join(stage, 'package.json'))
@@ -84,7 +77,7 @@ if (!inPlace) {
 }
 
 const retired = await mkdtemp(join(outRoot, '.retired-'))
-for (const entry of ['lib', 'dist', 'client.js']) {
+for (const entry of ['lib', 'dist', 'client.js', 'runtime']) {
   const target = join(outRoot, entry)
   if (existsSync(target)) await rename(target, join(retired, entry))
   await rename(join(stage, entry), target)

@@ -1,154 +1,51 @@
-<p align="center"><img src="docs/assets/ball.png" width="120" alt="dsh-orb 悬浮球"></p>
-
 # dsh-orb
 
-[English](README.md) | 中文
+[English](README.md) | 涓枃
 
-[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（dsh）的非官方个人开发者插件。一个可安装的 bundle，为官方 dsh 桌面版和 `dsh web` 加上带 Computer Use 的悬浮球 Agent——官方仓库一行不改，主窗口仍是官方 dsh Web UI。
+杩欐槸 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)锛坉sh锛夌殑闈炲畼鏂逛釜浜哄畾鍒剁増銆備繚鐣欏畼鏂?Harness锛屽姞鍏?*涓荤獥鍙?Computer Use** 鍜岃瀵熸褰╁甫锛?*涓嶆彁渚涙偓娴悆銆佺嫭绔嬭亰澶╁叆鍙ｆ垨鑷姩鏇存柊鍣?*銆?
+> **澹版槑** 鈥?鏈」鐩敱涓汉鐙珛缁存姢锛?*涓?DeepSeek AI 鏃犻毝灞炪€佽鍙垨鍚堜綔鍏崇郴**銆侱eepSeek 鍚嶇О涓?Logo 褰?DeepSeek AI 鎵€鏈夈€傚師 dsh-orb 椤圭洰閲囩敤 MIT 璁稿彲锛涘叾鐗堟潈銆佽鍙笌鏉ユ簮璇存槑淇濈暀鍦?[LICENSE](LICENSE) 鍜?[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)銆?
+浠撳簱涓庨棶棰樺弽棣堬細<https://github.com/zhqxbmgit/DeepSeek-orb>
 
-> **声明** — 本项目由个人开发者维护，**与 DeepSeek AI 无任何隶属、认可或合作关系**。DeepSeek 名称、Logo 与头像素材归 DeepSeek AI 所有，此处仅作为上游项目自带的默认球头像使用。
+## 杩欎釜鐗堟湰鏄粈涔?
+姝ｅ紡鍏ュ彛灏辨槸瀹樻柟 Harness 涓荤獥鍙ｃ€侰omputer Use preset 鎸傝浇妗岄潰宸ュ叿銆佺敤浜庡悗鍙板伐浣滅殑 `code_agent`銆侀」鐩鍒欐鏌ュ伐鍏峰拰璁剧疆椤点€傚敮涓€鐨勮緟鍔╄繘绋嬫槸涓€涓彧璐熻矗缁樺埗瑙傚療妗嗗僵甯︾殑灏忓瀷 Electron 绐楀彛銆?
+娌℃湁鎮诞鐞冦€佺悆鑱婂ぉ闈㈡澘銆佸ご鍍忋€佺悆鑿滃崟銆佺悆宸ヤ綔鍖烘垨鍘嗗彶鍏ュ彛锛屼篃娌℃湁鑷姩鎻掍欢鍗囩骇銆傚崌绾у彧浣跨敤缁忚繃妫€鏌ョ殑鏈湴瀹夎鍖呫€?
+## 涓荤獥鍙?Computer Use
 
-悬浮球停靠在屏幕右沿。告诉它你要什么：看得见的操作当场通过 Computer Use 执行；耗时长的复杂任务派给后台代码会话，完成后结果回到球里。主窗口保留完整的 dsh Web UI——会话管理、插件市场、模型设置——你仍然可以在里面写代码、改文件、跑命令。
+- 鎴浘銆佺偣鍑汇€佽緭鍏ャ€佹粴鍔ㄣ€佹嫋鍔ㄣ€佺儹閿€佸簲鐢ㄥ垏鎹㈠拰鍔ㄤ綔鍚庢埅鍥鹃兘鍦ㄤ富绐楀彛瀵硅瘽閲屽畬鎴愩€?- `code_agent` 鎶婅緝闀胯皟鏌ユ垨浜х墿鍒朵綔娲剧粰鐙珛鐨勫悗鍙版爣鍑嗕細璇濓紱`code_agent_status` 鏌ョ湅锛宍code_agent_stop` 鍙栨秷璇ュ悗鍙板綋鍓?turn 鍜屾鍦ㄨ繍琛岀殑鍛戒护銆?- `project_context` 鎶ュ憡褰撳墠鐩綍銆侀」鐩牴銆佸疄闄呬繚鐣欑殑 `AGENTS.md` 閾俱€佸搱甯屻€佹埅鏂?閬楁紡鍜屼氦鎺ユ枃浠躲€俵oader 璺緞鎸夋瘡鏉′簨浠朵骇鐢熸椂璁板綍鐨勯」鐩牴灞曞紑锛涗粠 `椤圭洰\src` 鍚姩鏃讹紝鏍?`椤圭洰\AGENTS.md` 涓?`椤圭洰\src\AGENTS.md` 閮借兘姝ｇ‘瀵瑰簲銆?- `input_text` 鍙礋璐ｆ彃鍏ユ枃鏈紝鍙湁 `submit: true` 鎵嶄細鎸夋櫘閫?Enter銆傛鏂囨崲琛岀敤 **Shift+Enter 鎹㈣鍜屽鸡** 鎻掑叆锛屼笉浼氬洜涓烘鏂囨崲琛屾彁浜よ亰澶╄〃鍗曪紱Tab 浣滀负瀛楅潰 U+0009 鎻掑叆锛屼笉浼氱Щ鍔ㄧ劍鐐广€傚叾瀹冩帶鍒跺瓧绗﹀湪鐐瑰嚮鍓嶅氨琚嫆缁濄€?- `screenshot` 浼氭妸涓€寮犲浘淇濆瓨鍒版闈㈠苟澶嶅埗鍒板壀璐存澘銆?
+## 瑙傚療妗嗗僵甯?
+褰╁甫鏍囧嚭 Agent 姝ｅ湪瑙傚療鐨勭獥鍙ｅ尯鍩熴€傚畠涓?Agent 浼氳瘽鍒绘剰鍒嗙锛?
+- 涓€涓渶灏?Electron 杩涚▼鍔犺浇 `observation-frame.html`锛屽湪瑙傚療鐭╁舰澶栨斁缃€忔槑銆佷笉鍙仛鐒︺€佺偣鍑荤┛閫忕殑绐楀彛锛屽苟纭 capture/input 鍖洪棿銆?- Windows 涓婂僵甯︿娇鐢?`WDA_EXCLUDEFROMCAPTURE`锛氱敤鎴风湅寰楀埌锛屼絾涓嶄細杩涘叆 Agent 鐨勬埅鍥撅紱鐐瑰嚮浼氱┛閫忥紝閿洏鐒︾偣涓嶄細琚姠璧般€?- 褰╁甫璺熼殢鐭╁舰绉诲姩锛屾樉绀哄櫒缂╂斁鍙樺寲鏃堕噸鏂板畾浣嶏紱鍦?`turn/end`銆佸彇娑堛€佺洰鏍囧け鏁堟垨缁樺埗澶辫触鏃堕殣钘忋€?- 璁剧疆椤垫樉绀虹粯鍒剁粍浠剁殑杩炴帴涓?/ 杩愯涓?/ 宸插叧闂?/ 澶辫触鐘舵€侊紱澶辫触鍚庢彁渚涘乏閿彲杈剧殑鈥滈噸鏂板惎鍔ㄥ僵甯︾粍浠垛€濓紝涓嶄細鏃犻檺鑷姩閲嶆媺銆?- 閫忔槑缃《娓愬彉杈规闇€瑕?Chromium 绐楀彛锛屽洜姝や娇鐢ㄥ浐瀹氱増鏈殑鍘熺増 Electron 杩愯鏃讹紝杩愯鍦ㄧ嫭绔?`userData`锛屼笉淇敼涔熶笉澶嶇敤 Harness 鍙墽琛屾枃浠躲€傚凡鏈夌紦瀛樹細澶嶇敤锛涢娆′娇鐢ㄥ彲鑳藉噯澶?涓嬭浇杩愯鏃讹紝璁剧疆椤典細鏄剧ず闃舵銆?
+杩欎釜杈呭姪杩涚▼鍙仛缁樺埗銆佹樉绀恒€侀殣钘忓拰纭锛屼笉鎸佹湁瀵硅瘽銆佹彁绀鸿瘝銆佹彁闂€佸ご鍍忋€佸巻鍙层€佸伐浣滃尯鎴栨洿鏂扮姸鎬併€?
+## 瑙勫垯銆侀」鐩寖鍥翠笌璇佹嵁
 
-不收集任何遥测数据。
+- 瑙勫垯姝ｆ枃浠嶅彧鐢卞畼鏂?`@deepseek-ai/dsh-agent-instructions` 娉ㄥ叆锛沗project_context` 鍙姤鍛婅矾寰勩€佸瓧鑺傛暟銆丼HA-1 璇佹嵁鍝堝笇銆乴oader digest 鍜岄仐婕?鎴柇鐘舵€併€?- loader 鐨?`changes[].path` 鐩稿椤圭洰鏍广€傛瘡鏉′繚鐣欒褰曢兘甯︽湁浜х敓璇ヤ簨浠舵椂鐨?`cwd` 鍜?`projectRoot`锛涙姤鍛婂垎寮€缁欏嚭 `baseline_project_root` 涓?`latest_loader_project_root`銆?- 缂哄皯鏉ユ簮鏃朵繚鎸?`unconfirmed`锛屼笉鎸夌浉鍚屾枃鏈寽娴嬶紝涔熶笉鎶婃棫璁板綍鏁翠綋閲嶇粦鍒板綋鍓嶇洰褰曘€?- `runtime/` 涓嬬殑璇佹嵁杩愯鍣ㄥ垎鍒褰曞師濮?stdout/stderr銆侀€€鍑虹爜瀛楁銆佺紪鐮佹鏌ャ€佹埅鏂拰鑷繁鐨勮秴鏃躲€傝８ exit 0 涓嶇瓑浜庢祴璇曢€氳繃鎴栧凡缁忛儴缃层€?
+## 瀹夎
 
-## 悬浮球
-
-启动后插件拉起自己的 helper（锁定并校验过的 Electron 运行时，独立 profile），球出现在主屏右沿，置顶。
-
-- **左键单击**球打开面板；面板打开后不会因为指针移到虚拟键盘、任务栏或别的窗口而收起。面板顶部的**收起**按钮（或再次单击球）才会收起，未发送的草稿保留。**拖动**球移动位置；面板顶部的**移动**按钮也可以用左键拖动整个面板。
-- 面板顶部有**收起 / 设置 / 主窗口 / 移动**，第二行是**历史 / 权限 / 新建 / 大小 − +**；输入区上方是整宽的**粘贴任务**，输入框右侧是大号**发送**。设置和主窗口不再只能靠右键进入；右键菜单保留原有的模型、坐标编码、更新和停用入口。面板位置与大小在退出后保存，下次启动恢复；换显示器或改缩放后会自动回到可见区域。
-- 面板里有球自己的对话历史（**历史**/**新建**）、**Access** 权限芯片（只读 / 工作区内修改 / 完全访问，默认完全访问，作用于球的命令和它派出的后台会话）、绕球折行的输入框。**粘贴任务**只把剪贴板文本追加到草稿，点**发送**才会执行；空输入、重复点击和正在提交都有明确反馈。面板底部一行常驻显示**本对话是否运行**以及**后台任务数量**；运行中会用写着**停止当前对话**的按钮替换输入区，旁边注明停止只作用于本对话、后台任务继续运行，已执行的点击和文件修改不会因为停止而撤销。Agent 向你提问时，提问卡就在球上回答；helper 断开时，未回答的问题交回主窗口。
-- **右键**打开菜单：打开主窗口、打开悬浮球设置（直接落到主窗口设置里的「悬浮球」页）、悬浮球 Agent 设置与后台 Agent 设置（两条轨各自选模型和思考强度；**没在球里选过的轨跟随主窗口的默认模型**，所以只登录账号、没配 API Key 也能直接用）、坐标编码开关、「停用悬浮球」。球跟着官方 dsh 进程走——官方应用退出，球随之退出。
-- 球靠屏幕边缘停靠后收成细条，悬停细条即可滑回；这是保留的收纳方式，与面板的展开收起无关。
-- 对话区是球内原生渲染：思考 / 正文 / 工具调用按到达顺序实时流式穿插，工具卡默认折叠、点开看参数与结果（终端、差异、读取、搜索、网页专属卡），Shiki 双主题高亮，KaTeX 公式排版（`$…$`、`$$…$$`、`\(…\)`、`\[…\]`，与主窗口同版本、随明暗主题），用户与回复消息各配复制按钮，旁边显示每轮 Token 用量。
-- 外观跟随主窗口：暗色 / 浅色主题与界面语言（中文 / English）镜像官方「外观」「语言」设置，支持即时切换。
-- 球头像可在主窗口**设置 → 悬浮球**里挑 6 张内置动图，或换成自定义 GIF / PNG / WebP（4 MB 以内）。内置动图保持动画：球处于活动状态时照常播放，与自带头像行为一致。内置动图末尾的**更多动图**直接打开 [dshgif.hicp.fun](https://dshgif.hicp.fun/) 图库，下载 GIF 后用「选择图片」换成自己的；文件超过上限时会直接说出它有多大。
-
-## 双轨 Agent 架构
-
-由球内的 Computer Use Agent 决定每条消息怎么处理，运行时没有独立的任务分类器：
-
-```mermaid
-flowchart TD
-    user["你对悬浮球说话"] --> orb["Computer Use Agent"]
-    orb -->|"看得见的 GUI 操作"| gui["13 个 GUI 工具<br>在当前窗口当场执行"]
-    orb -->|"快问快答：天气、新闻"| web["web_search / web_fetch<br>球上直接回答"]
-    orb -->|"翻文件、产出文档或网站"| bg["code_agent 后台会话<br>派出即返回"]
-    bg -->|"完成通知"| orb
+鍙畨瑁呯粡杩囨鏌ョ殑鏈湴 tarball锛?
+```sh
+dsh plugin add ./dsh-orb-0.2.17.tgz
 ```
 
-- **前台轨 · Computer Use**：看得见的操作——打开应用、点按钮、填表单、改设置——用 GUI 工具当着你的面执行，每一步都基于前台窗口的实时截图。天气、新闻这类快问快答也留在球上，用 `web_search` / `web_fetch` 直接回答。
-- **后台轨 · Code Agent**：复杂任务——翻文件、产出文档、搭网站——经 `code_agent` 派给后台标准会话。派出立即返回，球会告诉你后台在跑，你可以继续聊。后台会话结束且球空闲时，完成摘要自动回到球里，Computer Use Agent 决定下一步——继续点击、再派后台，还是收尾。
-
-后台会话和你在主窗口手动建的会话是同一种；它出现在主窗口侧栏的 `dsh_orb` 文件夹里，可以打开、继续或停止。同一产物的后续修改回到同一个后台会话，无关的新工作另开一个。对话历史、权限、两条轨的模型设置都与官方 dsh 进程共享——球读写的就是主窗口的那份会话。
-
-## Computer Use
-
-球上的每条对话都带 Computer Use：第一条消息自动附上前台应用可见窗口的截图，之后每个动作都跟一张新截图（含鼠标光标），模型始终看到最新屏幕状态。
-
-- Agent 操作期间，截图自动排除球、展开面板和观察边框，点击穿透球而不是落在球上；被观察的窗口有一圈发光的观察边框，标出 Agent 正在看哪里。非操作期间球是普通窗口，截图录屏照常包含。
-- 工具列表：`click`（单击/双击/右键，支持修饰键）、`input_text`、`scroll`、`hotkey`、`long_press`、`drag`、`wait`、`long_wait`、`screenshot`（存到桌面并复制到剪贴板）、`open_in_browser`、`open_in_finder`、`list_apps`、`open_app`。
-- **macOS**：第一次操作屏幕时，系统权限弹窗的授权对象是 **DeepSeek Harness**（桌面版）或你的终端（`dsh web`）——请对那个进程授权。球内的引导层会带你完成「屏幕录制」和「辅助功能」两项授权。
-- **Windows**：无需系统权限引导；以管理员运行的窗口拒绝被点击和输入。
-- 安装本插件即授权：GUI 工具不会逐次点击询问。
-
-## 工作原理
-
-```
-DeepSeek Harness（官方，不改）
-└─ Electron 壳（主窗口、dsh://open、单实例）
-     └─ Host，以纯 Node 进程拉起（ELECTRON_RUN_AS_NODE=1）
-          └─ dsh-orb 插件
-               ├─ host — 会话、权限、模型、web 路由、helper 生命周期
-               ├─ computer-use — 13 个 GUI 工具 + code_agent（Computer Use preset）
-               └─ client-settings — 主窗口「悬浮球」设置节
-
-Helper（自带的下载版 Electron，独立 userData）
-├─ 球窗口、观察边框
-└─ 数据请求 → 官方 Host 的鉴权 loopback URL
-```
-
-- 只装一个包：`dsh-orb` bundle 在构建时把 host、Computer Use 插件、helper 和设置页装配进自身。
-- helper 运行时是官方原版 Electron 发布物，以 SHA-256 钉死（darwin/win32，arm64/x64），首次使用时下载并与钉死的哈希比对；运行在独立的 `userData`，与官方应用分开。
-- helper 与 host 之间是只听 loopback 的 NDJSON socket，用每次启动随机生成的 32 字节 token 鉴权，只经环境变量传递——不进 argv、不落盘。带官方凭据的鉴权 URL 永远不交给 helper。
-- 看门狗：socket 断开 helper 自行退出；host 最多重试 3 次。球起不来时，主窗口里的 Computer Use 仍然可用。
-
-## 环境要求
-
-- [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)：桌面版，或 CLI 的 `dsh web`。按 dsh `0.1.7-rc.2` 编译；声明的兼容范围是 `>=0.1.7-rc.2 <0.3.0-0`。
-- macOS（Apple Silicon / Intel）或 Windows x64。Linux 会加载插件但不建球——后台代码会话仍可用。
-- Node.js `^22.19.0 || >=24.0.0` 与 pnpm `11.7.0`（仅从源码构建时需要）。
-
-## 安装
-
-### 从发布版安装
-
-插件发布到 npm registry，国内由 npmmirror 镜像分发。安装单位是 release 里的 tarball——**不是仓库本身**：把仓库链接填进插件页，装到的是 monorepo 根包，会报「这个包没有声明组合包」。
-
-- **按名字装**——桌面版插件页里直接填 `dsh-orb`，或者：
-
-  ```sh
-  dsh plugin add dsh-orb
-  ```
-
-- **按版本号装**——`dsh-orb@<版本>`。显式版本会跳过发布年龄闸门，pnpm 从 registry 元数据写入 `integrity`。不要把 `https://registry.npmmirror.com/dsh-orb/-/dsh-orb-<版本>.tgz` 这种直链贴进插件页：官方客户端自带的 pnpm 11.7 会因为 lockfile 没有 `integrity` 拒绝远程 tarball 直链。
-
-**刚发布的版本在 24 小时内按名字装可能仍解析到上一个版本。** 官方客户端内置的 pnpm 11 默认开启 `minimumReleaseAge`（1440 分钟）：按名字解析时会退回到"发布满 24 小时的最新版本"——这是供应链保护，不是网络问题。想立即拿到新版本：装 `dsh-orb@<版本号>`，或在 profile 的 `pnpm-workspace.yaml` 里豁免该包：
-
-```yaml
-minimumReleaseAgeExclude:
-  - dsh-orb
-```
-
-已装旧版时无需重装：主窗口设置页的悬浮球卡片可检查并一键更新（更新流程会自己写入这条豁免）。
-
-**插件内更新报 `operation-error` 怎么办？** 0.1.4 及更早的更新按钮把 npmmirror 的 tarball 直链交给官方客户端自带的 pnpm 11.7。这种直链在 lockfile 里没有 `integrity`，pnpm 会在下载前拒绝（`ERR_PNPM_MISSING_TARBALL_INTEGRITY`），界面只显示笼统的 `operation-error`。请在插件页按版本号安装 `dsh-orb@<版本>`（不要贴 tarball 直链）。装上之后，更新按钮改为按版本号安装，并先问 npmmirror。原始失败细节在 profile 的 `.plugin-manager/logs/operation-*/pnpm.log` 里。
-
-### 从本地构建安装
-
+鏈増鏈笉浼氳嚜鍔ㄨ闂師鐗堝彂甯冩簮锛屼篃娌℃湁鍏叡浠撳簱鏇存柊璺緞銆傝淇濈暀鏃у寘锛屼笉瑕佹妸鍏叡 `dsh-orb` 瑕嗙洊瀹夎鍒拌繖涓畾鍒剁増涓娿€?
+## 浠庢簮鐮佹瀯寤?
 ```sh
 pnpm install
+pnpm typecheck
+pnpm test
 pnpm build
-pnpm --filter dsh-orb run pack        # 生成 ./dsh-orb-<version>.tgz
+pnpm --filter dsh-orb run pack
 ```
 
-> `run` 不能省。不带 `run` 的 `pnpm pack` 是 pnpm 自带的打包命令，只按 `files` 字段打包工作区目录，捆绑的 `node_modules`（`koffi`、`zod` 与各平台预构建）一个都不会进 tarball。这样打出来的包装得上，但插件加载不了 `koffi`，Computer Use 会直接失败。`run pack` 才会执行 bundle 的 `scripts/pack.mjs`，把各部分组装进包里。
+`run` 涓嶈兘鐪併€傛墦鍖呰剼鏈細鎶?host銆丆omputer Use銆佸僵甯﹁緟鍔╄繘绋嬨€佽缃〉浠ュ強杩愯鏃朵緷璧栵紙`koffi`銆乣zod` 鍜?koffi 鍚勫钩鍙伴鏋勫缓锛夎閰嶈繘 `dsh-orb-<version>.tgz`銆?
+## 鐜瑕佹眰
 
-然后在桌面版插件页添加这个 tarball，或者：
+- 甯?Web UI 鐨?DeepSeek Harness锛堟闈㈢増鎴?`dsh web`锛夛紝鎸?dsh `0.1.7-rc.2` 鏋勫缓锛涘０鏄庡吋瀹硅寖鍥?`>=0.1.7-rc.2 <0.3.0-0`銆?- Windows x64 鎴?macOS銆侺inux 浼氬姞杞借缃?鍚庡彴閮ㄥ垎锛屼絾娌℃湁 GUI 鍚庣鍜屽僵甯︺€?- 浠庢簮鐮佹瀯寤洪渶瑕?Node.js `^22.19.0 || >=24.0.0` 鍜?pnpm `11.7.0`銆?
+## 鍋滄璇箟
 
-```sh
-dsh plugin add ./dsh-orb-<version>.tgz
-```
+- 鍋滄褰撳墠瀵硅瘽浼氬彇娑堝綋鍓?turn锛涙鍦ㄦ墽琛岀殑宸ュ叿鏀跺埌 `AbortError`锛屽搴斿懡浠よ繘绋嬬粨鏉熴€傚凡缁忔墽琛岀殑鐐瑰嚮銆侀敭鍏ュ拰鏂囦欢淇敼涓嶄細鍥炴粴銆?- 宸叉帓闃熸秷鎭細淇濈暀锛坄keepInbox: true`锛夛紝浣?25 绉掕瀵熷唴娌℃湁鑷姩寮€濮嬫柊 turn銆備繚鐣欎笉绛変簬姘镐箙鍙栨秷锛屾棫闃熷垪鐨勬仮澶嶆潯浠跺皻鏈‘璁わ紱涓嶈鍋囪鎵嬪姩閲嶅彂涓€瀹氭病鏈夐噸澶嶆墽琛岄闄┿€?- 鍚庡彴 `code_agent` 鏄嫭绔嬩細璇濓紝涓?turn 鍋滄鏃跺畠缁х画杩愯锛涚敤 `code_agent_stop` 鍋滄鐩爣鍚庡彴銆傚畬鎴愬悗閫氱煡浠嶅彲鑳藉敜閱掕鍋滄鐨勫璇濄€?- 鏈彃浠朵笉鏂板缁熶竴鏆傚仠绯荤粺锛屼篃涓嶄慨鏀瑰畼鏂硅皟搴﹀櫒銆?
+## 鐘舵€佷笌闄愬埗
 
-首次使用悬浮球时会下载 helper 的 Electron 运行时，之后缓存复用。下载期间、下载失败或被中途打断时，主窗口 **设置 → 悬浮球** 顶部会显示醒目的提示卡片，点其中的「重新下载」立即从头再下一次——不用重启应用。
+- 鐢ㄦ埛鐢?Comfort On-Screen Keyboard 鍜?rightpad 鍗曟寚鎿嶄綔鐨勭湡瀹炰綋楠屼粛鐢辩敤鎴锋湰浜洪獙鏀讹紝涓嶈兘鐢ㄨ嚜鍔ㄦ敞鍏ユ浛浠ｃ€?- 澶氭樉绀哄櫒涓庢贩鍚堢缉鏀句笅鐨勫僵甯﹀彧瑕嗙洊鏈夐檺鍦烘櫙锛涗富瑕佸疄娴嬩负 1920脳1080銆?00% 缂╂斁銆?- 褰╁甫棣栨浣跨敤鍙兘闇€瑕佸凡缂撳瓨鎴栦笅杞藉浐瀹氱殑 Electron 杩愯鏃讹紱涓嬭浇澶辫触鏃惰缃〉鎻愪緵閲嶅惎锛屼絾娌℃湁缃戠粶涓旀棤缂撳瓨鏃舵棤娉曠粯鍒躲€?- 鏈畾鍒剁増涓嶅彂甯冨埌鍏叡 registry锛岃浣跨敤鏈湴 tarball銆?
+## 璁稿彲璇佷笌鏉ユ簮
 
-## 开发
-
-```sh
-pnpm typecheck   # 各包 tsc 检查
-pnpm test        # node:test 套件 + computer-use 的 vitest 套件
-pnpm build       # 构建全部包并装配 bundle
-```
-
-本插件的设计文档在 [docs/](docs/)——可行性分析、架构、分阶段实施与持续追加的修订记录。
-
-## 状态与已知限制
-
-- **划词工具条**（划词后搜索 / 翻译 / 发给 Agent）修复缺陷期间暂时停用；代码保留，但所有入口已撤下，偏好里强制关闭。
-- 面板位置与大小按每个 helper 记一份，不按显示器分别保存：显示器布局或缩放变化时，面板会被夹回最近的工作区，而不是恢复该显示器上次的布局。
-- 按 dsh `0.1.7-rc.2` 构建与测试；兼容范围内的新版 dsh 可能需要重新验证。dsh `0.2.1-rc.1` 不再注册 `cwd` 提示词变量，Computer Use 的 persona 因此不能再引用它——工作目录改由运行时上下文给出。
-- Linux 上没有悬浮球；无显示器的环境仍可跑后台代码会话。
-- macOS 权限弹窗写的是 DeepSeek Harness 或终端，不是本插件——权限归属承载 Agent 的进程，这是系统行为。
-
-## 与 DeepSeek Harness 的关系
-
-本仓库是在 [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) 之上构建的非官方衍生作品。dsh 是 DeepSeek 开源的 everything-is-a-plugin Agent 框架，会话、插件、工具与 Web UI 全部由它驱动。本项目不改任何上游代码——像普通第三方 dsh 插件一样安装。想深入了解：
-
-- [docs/01-analysis.md](docs/01-analysis.md) — 可行性与产品决定
-- [docs/02-architecture.md](docs/02-architecture.md) — 进程、包、通信、安全
-- [packages/computer-use/README.md](packages/computer-use/README.md) — GUI 工具、坐标编码与权限细节
-
-## 许可证
-
-[MIT](LICENSE)。上游衍生的代码与素材在 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) 中披露。
+[MIT](LICENSE)銆傛湰椤圭洰鏄?MIT 璁稿彲鐨?[mini-yifan/dsh-orb-cordis](https://github.com/mini-yifan/dsh-orb-cordis) 鐨勭嫭绔嬭鐢熺増鏈紝浣跨敤瀹樻柟 DeepSeek Harness 涓斾笉淇敼瀹冦€備笂娓歌鐢熶唬鐮佷笌绱犳潗鍦?[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) 涓姭闇层€?

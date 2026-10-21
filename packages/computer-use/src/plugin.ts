@@ -53,11 +53,9 @@ import {
   type ObservedScreen,
 } from './observe.ts'
 import { isUsableObservationRaster } from './raster.ts'
-import { policyFor, backgroundPolicyFor } from './policy.ts'
+import { policyFor } from './policy.ts'
 import { assertImageCapableRoute, routeAcceptsImages } from './route.ts'
 import { withScreenLock } from './gui-lock.ts'
-import { BALL_PRESET, presetOf, screenOwnerId } from './screen-owner.ts'
-import { isDesktopSelectionTurn } from './selection-turn.ts'
 import { pairScreenshotFiles, writeDesktopScreenshots } from './screenshot.ts'
 import { delay } from './wait.ts'
 import { LONG_WAIT_SECONDS, WAIT_SECONDS, requireLongWaitSeconds } from './wait-args.ts'
@@ -265,18 +263,7 @@ export function applyComputerUse(
   ctx.systemPrompt.section({
     name: 'tool:computer-use',
     order: POLICY_SECTION_ORDER,
-    text: (context) => {
-      // Ownership is read per assembly, so a conversation that becomes — or stops being — the one
-      // the ball shows gets the matching capability text on its very next request. Two doors stay
-      // open: an absent owner is the unrestricted case (web, CLI, ball switched off), and a session
-      // that is not a ball conversation keeps the full policy whatever the owner is.
-      const agent = context.agent
-      const owner = screenOwnerId()
-      if (agent !== undefined && owner !== undefined && owner !== agent.id && presetOf(agent) === BALL_PRESET) {
-        return backgroundPolicyFor()
-      }
-      return policyFor(coordinateModeOf(agent?.session))
-    },
+    text: (context) => policyFor(coordinateModeOf(context.agent?.session)),
   })
   ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
     const nextAssembly = await next()
@@ -386,7 +373,8 @@ export function applyComputerUse(
   ctx.tools.register(defineTool({
     name: 'input_text',
     description:
-      'Click to focus a 0–1000 position on the attached frontmost-window screenshot, type text, optionally replace existing content and press Enter, then return the post-action screenshot.',
+      'Click to focus a 0–1000 position on the attached frontmost-window screenshot, insert text, optionally replace existing content and press Enter, then return the post-action screenshot. '
+      + 'A newline in text is inserted as a Shift+Enter line break; only submit presses plain Enter. Tab is inserted as a literal tab, never as a focus-moving key.',
     parameters: {
       screen_index: { type: 'integer', required: true, description: '0 for the attached frontmost-window screenshot.' },
       position: {
@@ -395,7 +383,13 @@ export function applyComputerUse(
         items: { type: 'number' },
         description: '[x, y] as a 0–1000 fraction of that screenshot, not pixels; the click focuses the field.',
       },
-      text: { type: 'string', required: true, description: 'Characters to type after the focus click.' },
+      text: {
+        type: 'string',
+        required: true,
+        description:
+          'Characters to insert after the focus click. Newlines become Shift+Enter line breaks and Tab is literal; '
+          + 'other control characters are rejected before the click.',
+      },
       replace: {
         type: 'boolean',
         default: false,
@@ -404,7 +398,7 @@ export function applyComputerUse(
       submit: {
         type: 'boolean',
         default: false,
-        description: 'When true, press Enter after typing. Default: false.',
+        description: 'When true, press plain Enter after typing. Default: false. Body newlines never press plain Enter.',
       },
     },
     output: {
@@ -1116,7 +1110,6 @@ export function applyComputerUse(
   ): Promise<PreStepDecision> => {
     const decision = await next()
     if (decision.kind === 'reject' || decision.messages.length === 0) return decision
-    if (isDesktopSelectionTurn(messages)) return decision
     if (!messages.some(message => message.source.kind === 'user')) return decision
     if (!await routeAcceptsImages(ctx, agent, signal)) return decision
     signal.throwIfAborted()

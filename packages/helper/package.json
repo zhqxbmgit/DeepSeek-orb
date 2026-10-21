@@ -3,28 +3,18 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Transparent always-on-top ball. A separate Electron process owned by the official dsh host.",
+  "description": "Minimal Electron observation-ribbon helper. It draws and acks; it owns no chat or session.",
   "main": "lib/main.js",
   "exports": {
     ".": "./lib/main.js",
-    "./package.json": "./package.json",
-    "./preload.cjs": "./preload.cjs",
-    "./selection-preload.cjs": "./selection-preload.cjs"
+    "./package.json": "./package.json"
   },
   "files": [
     "lib",
-    "preload.cjs",
-    "selection-preload.cjs",
     "assets"
   ],
   "scripts": {
-    "build": "tsdown && pnpm build:vendor",
-    "build:vendor": "tsdown --config tsdown.vendor.config.ts && node ./scripts/vendor-katex-assets.mjs"
-  },
-  "devDependencies": {
-    "@shikijs/langs": "^4.3.1",
-    "katex": "^0.16.47",
-    "shiki": "^4.3.1"
+    "build": "tsdown"
   },
   "license": "MIT"
 }

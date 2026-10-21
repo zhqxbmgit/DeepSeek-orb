@@ -1,5 +1,5 @@
 /**
- * Locate the generic Electron binary used to open the ball.
+ * Locate the generic Electron binary used to draw the observation ribbon.
  * Official DeepSeek Harness is not a usable helper runtime: it has its own app payload and a single-instance lock.
  */
 
@@ -304,7 +304,7 @@ const CONNECT_TIMEOUT_SECONDS = '5'
 /**
  * Mirrors of an Electron release, in the order they are asked.
  * npmmirror goes first: github.com is unreachable for a large part of the audience,
- * and a silently dropped connection there would otherwise stall the first ball launch.
+ * and a silently dropped connection there would otherwise stall the first ribbon launch.
  * Every download is checked against the compiled-in SHA-256, so the order costs no trust.
  */
 function releaseUrls(path: string): string[] {

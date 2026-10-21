@@ -1,24 +1,23 @@
 {
   "name": "dsh-orb",
-  "version": "0.2.2",
+  "version": "0.2.17",
   "type": "module",
-  "description": "Installable Orb bundle. Inserts the Computer Use preset and the floating-ball host.",
+  "description": "User-maintained dsh-orb custom build for main-window Computer Use; local-package updates only.",
   "keywords": [
     "dsh",
     "deepseek-harness",
     "cordis",
     "plugin",
     "computer-use",
-    "floating-ball",
     "desktop"
   ],
-  "homepage": "https://github.com/mini-yifan/dsh-orb-cordis#readme",
+  "homepage": "https://github.com/zhqxbmgit/DeepSeek-orb#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/mini-yifan/dsh-orb-cordis.git"
+    "url": "git+https://github.com/zhqxbmgit/DeepSeek-orb.git"
   },
   "bugs": {
-    "url": "https://github.com/mini-yifan/dsh-orb-cordis/issues"
+    "url": "https://github.com/zhqxbmgit/DeepSeek-orb/issues"
   },
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
@@ -51,6 +50,7 @@
     "lib",
     "client.js",
     "dist",
+    "runtime",
     "cordis.patch.yml"
   ],
   "scripts": {
@@ -101,8 +101,7 @@
     "@dsh-orb/client-ui-settings-orb": "workspace:*",
     "@dsh-orb/computer-use": "workspace:*",
     "@dsh-orb/helper": "workspace:*",
-    "@dsh-orb/host": "workspace:*",
-    "@dsh-orb/native-selection": "workspace:*"
+    "@dsh-orb/host": "workspace:*"
   },
   "dsh": {
     "client": {

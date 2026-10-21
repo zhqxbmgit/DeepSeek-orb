@@ -13,7 +13,6 @@ function host(profile: string) {
   const provided: string[] = []
   const listeners: { name: string; prepend?: boolean }[] = []
   let dispose: (() => void) | undefined
-  const logs: string[] = []
   const ctx = {
     webServer: {
       port: 9,
@@ -28,14 +27,10 @@ function host(profile: string) {
     },
     sessionController: {
       modelCatalog: () => ({ groups: [] }),
-      create: async () => ({ sessionId: 'session-unused' }),
-      prompt: async () => ({ accepted: true as const }),
-      list: async () => ({ items: [] }),
-      selectModel: async () => {},
-      cancel: async () => {},
     },
-    workspaceController: { create: async () => ({ workspace: { workspaceId: 'ws' } }) },
-    sessions: { get: () => undefined },
+    agentDefaultModel: {
+      currentSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-flash' }),
+    },
     effect(run: () => void | (() => void)) { dispose = run() ?? undefined },
     get(service: string) {
       if (service === 'profileContext') return { dir: profile }
@@ -47,82 +42,37 @@ function host(profile: string) {
       return () => {}
     },
   }
-  return { ctx, routes, provided, listeners, logs, stop: () => dispose?.() }
+  return { ctx, routes, provided, listeners, stop: () => dispose?.() }
 }
 
 describe('orb-host plugin', () => {
-  it('registers settings and Computer Use services without starting the helper', async () => {
+  it('registers the main-window settings and overlay services without a ball lifecycle', async () => {
     const profile = join(root, 'off')
     mkdirSync(profile, { recursive: true })
+    writeFileSync(join(profile, 'observation-frame.json'), '{"enabled":false}\n')
     const started = host(profile)
     const errors: string[] = []
     const original = console.error
     console.error = (...args: unknown[]) => { errors.push(args.map(String).join(' ')) }
     try {
-      apply(started.ctx as never, { autoStart: false })
+      apply(started.ctx as never)
     } finally {
       console.error = original
     }
     assert.equal(name, 'orb-host')
-    assert.deepEqual(inject, ['webServer', 'connection', 'sessionController', 'workspaceController', 'sessions', 'agentDefaultModel'])
+    assert.deepEqual(inject, ['webServer', 'connection', 'sessionController', 'agentDefaultModel'])
     assert.deepEqual(started.routes, [{ kind: 'prefix', path: '/.dsh-orb' }])
-    assert.deepEqual(started.provided, ['computerUseOverlayGuard', 'orbCodeAgentModel', 'orbCoordinateMode'])
-    assert.equal(started.listeners.some((item) => item.name === 'user-questions/request' && item.prepend === true), true)
-    assert.equal(started.listeners.some((item) => item.name === 'session/created'), true)
+    assert.deepEqual(started.provided, [
+      'computerUseOverlayGuard',
+      'orbCodeAgentModel',
+      'orbCoordinateMode',
+    ])
+    assert.equal(started.listeners.length, 0, 'no ball question/session listeners')
     assert.equal(errors.some((line) => line.includes('token=') || line.includes('secret')), false)
-    assert.equal(errors.some((line) => line.includes('helper socket')), false)
+    assert.equal(errors.some((line) => line.includes('ribbon socket')), false)
+    assert.equal(errors.some((line) => line.includes('floating')), false)
     started.stop()
     await new Promise((resolve) => setTimeout(resolve, 20))
-    assert.equal(errors.some((line) => line.includes('helper socket')), false)
-  })
-
-  it('keeps the helper down when ball-enabled.json is false', async () => {
-    const profile = join(root, 'disabled')
-    mkdirSync(profile, { recursive: true })
-    writeFileSync(join(profile, 'ball-enabled.json'), '{"enabled":false}\n')
-    const started = host(profile)
-    const errors: string[] = []
-    const original = console.error
-    console.error = (...args: unknown[]) => { errors.push(args.map(String).join(' ')) }
-    try {
-      apply(started.ctx as never)
-    } finally {
-      console.error = original
-    }
-    assert.equal(started.routes.length, 1)
-    await new Promise((resolve) => setTimeout(resolve, 20))
-    assert.equal(errors.some((line) => line.includes('helper socket')), false)
-    started.stop()
-  })
-
-  it('keeps the helper down while an after-exit install is still running', async () => {
-    const profile = join(root, 'installing')
-    mkdirSync(join(profile, '.dsh-orb-update'), { recursive: true })
-    writeFileSync(join(profile, '.dsh-orb-update', 'status.json'), JSON.stringify({
-      phase: 'installing',
-      spec: 'dsh-orb@0.2.0',
-      pid: process.pid,
-      startedAt: Date.now(),
-    }))
-    const started = host(profile)
-    const errors: string[] = []
-    const original = console.error
-    // Point the runtime at a path that does not exist: if the gate ever regresses, the test
-    // fails on its assertions instead of launching a real Electron helper.
-    const previousRuntime = process.env.DSH_ORB_ELECTRON_PATH
-    process.env.DSH_ORB_ELECTRON_PATH = join(root, 'no-electron-here')
-    console.error = (...args: unknown[]) => { errors.push(args.map(String).join(' ')) }
-    try {
-      apply(started.ctx as never)
-    } finally {
-      console.error = original
-      if (previousRuntime === undefined) delete process.env.DSH_ORB_ELECTRON_PATH
-      else process.env.DSH_ORB_ELECTRON_PATH = previousRuntime
-    }
-    assert.equal(errors.some((line) => line.includes('an update install is running')), true)
-    await new Promise((resolve) => setTimeout(resolve, 20))
-    // Nothing may load the package (koffi staging) or start the helper while pnpm replaces it.
-    assert.equal(errors.some((line) => line.includes('helper socket')), false)
-    started.stop()
+    assert.equal(errors.some((line) => line.includes('ribbon socket')), false)
   })
 })

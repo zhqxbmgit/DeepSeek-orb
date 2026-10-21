@@ -14,7 +14,6 @@ import LocalAttachmentStore from '@deepseek-ai/dsh-attachment-local'
 import { resolveComputerUseConfig } from '../src/config.ts'
 import { createFakeDesktopBackend } from '../src/fake.ts'
 import { applyComputerUse } from '../src/plugin.ts'
-import { DESKTOP_SELECTION_PREAMBLE } from '../src/selection-turn.ts'
 
 import type {} from '../src/coordinate-mode.ts'
 
@@ -74,9 +73,6 @@ const user = createUserMessage({
   content: [{ type: 'text', text: 'look' }],
   source: { kind: 'user' },
 })
-
-const DESKTOP_SELECTION_LINE =
-  'Desktop selection. Answer in this chat only. Do not call GUI tools or code_agent.'
 
 describe('computer-use first-frame pre-step', () => {
   it('appends desktop screens on a user turn for an image-capable route', async () => {
@@ -190,22 +186,4 @@ describe('computer-use first-frame pre-step', () => {
     expect(skippedNoLlm).toEqual({ kind: 'enter', messages: [user] })
   })
 
-  it('skips first-frame attachment for a Desktop selection-toolbar user turn', async () => {
-    expect(DESKTOP_SELECTION_PREAMBLE).toBe(DESKTOP_SELECTION_LINE)
-    const ctx = await setup(true)
-    const owner = agent('vision')
-    const selection = createUserMessage({
-      content: [{
-        type: 'text',
-        text: `${DESKTOP_SELECTION_LINE}\n\nExplain this text:\n\nhello`,
-      }],
-      source: { kind: 'user' },
-    })
-    const decision = await agentEvents(ctx, owner).waterfall(
-      'agent/pre-step',
-      { messages: [selection], turn: 1, step: 1, signal: new AbortController().signal },
-      () => Promise.resolve({ kind: 'enter' as const, messages: [selection] }),
-    )
-    expect(decision).toEqual({ kind: 'enter', messages: [selection] })
-  })
 })

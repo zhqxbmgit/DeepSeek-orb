@@ -1,9 +1,9 @@
 /**
- * Native window handles for the helper's own chrome.
- * On Windows the ball is an ordinary activatable window, so clicking it makes it the
- * foreground window. The host's observation walk reads `GetForegroundWindow`, so it must
- * know the ball's handle to skip it. macOS needs no equivalent: the ball is a
- * non-activating panel and never becomes the foreground window there.
+ * Native window handles for the ribbon helper's own chrome.
+ * Windows can report the frameless overlay as a foreground window even though it is
+ * click-through. The host's observation walk reads `GetForegroundWindow`, so it must
+ * know the frame handle to skip it. macOS needs no equivalent: the panel is
+ * non-activating and never becomes foreground.
  */
 
 /** The subset of `BrowserWindow` this module reads. */
@@ -28,7 +28,7 @@ export function windowIdFromHandle(handle: Buffer): number | undefined {
 
 /**
  * Ids for the helper's chrome windows, for the host's capture exclusion list.
- * @param windows - ball, selection toolbar, and observation frame; any may be missing.
+ * @param windows - observation-frame windows; any may be missing or destroyed.
  * @param platform - the helper's `process.platform`.
  * @returns unique ids, empty on every platform other than Windows.
  */

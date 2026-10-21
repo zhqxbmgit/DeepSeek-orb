@@ -58,26 +58,33 @@ function checkInstalled(profile, root) {
   // Files the host reaches by relative path.
   for (const rel of [
     'dist/helper/lib/main.js',
+    'dist/helper/assets/observation-frame.html',
+    'dist/helper/assets/observation-frame.css',
+    'dist/computer-use/macos-sck-capture',
+    'runtime/run-with-evidence.ps1',
+    'runtime/run-with-evidence.cmd',
+    'runtime/read-evidence.ps1',
+    'runtime/read-evidence.cmd',
+  ]) {
+    assert.ok(existsSync(join(root, rel)), rel)
+  }
+  // The floating ball, selection toolbar, avatars, and their vendor bundles
+  // are not part of this build.
+  for (const rel of [
     'dist/helper/preload.cjs',
     'dist/helper/selection-preload.cjs',
     'dist/helper/assets/floating.html',
     'dist/helper/assets/deepseek-avatar-square.gif',
-    // The ball's typesetter: the KaTeX bundle plus the sheet and faces it needs.
-    'dist/helper/assets/math.js',
-    'dist/helper/assets/vendor/katex.js',
-    'dist/helper/assets/vendor/katex/katex.min.css',
-    'dist/helper/assets/vendor/katex/fonts/KaTeX_Main-Regular.woff2',
-    // Every built-in avatar the host can offer has to be in the installed tree.
-    ...readdirSync(join(repo, 'packages/helper/assets/avatars')).map((file) => `dist/helper/assets/avatars/${file}`),
-    'dist/native-selection/src/index.js',
-    'dist/native-selection/prebuilds/darwin-universal/libmacos-selection.dylib',
-    'dist/computer-use/macos-sck-capture',
+    'dist/helper/assets/avatars',
+    'dist/helper/assets/vendor',
+    'dist/native-selection',
   ]) {
-    assert.ok(existsSync(join(root, rel)), rel)
+    assert.equal(existsSync(join(root, rel)), false, `${rel} must not ship`)
   }
   const host = readFileSync(join(root, 'dist/host/index.js'), 'utf8')
   assert.match(host, /new URL\("\.\.\/helper", import\.meta\.url\)/)
-  assert.equal(host.includes('from "@dsh-orb/native-selection"'), false)
+  assert.equal(host.includes('native-selection'), false)
+  assert.equal(host.includes('floating-session'), false)
   assert.equal(readdirSync(join(root, 'dist/host')).includes('index.js'), true)
 }
 
@@ -112,16 +119,17 @@ describe('dsh-orb install layout', () => {
     if (!existsSync(linked)) return
     const source = readFileSync(join(repo, 'packages/client-settings/client.js'), 'utf8')
     const text = readFileSync(linked, 'utf8')
-    assert.match(text, /update\.deferred/, 'the deferred-install banner is missing')
-    assert.match(text, /updateDeferred/)
+    assert.doesNotMatch(text, /updateDeferred|update\.deferred/u)
+    assert.match(text, /frame\/restart/u)
     // Only the module id differs from the source it is assembled from.
     assert.equal(text, source.replace("id: '@dsh-orb/client-ui-settings-orb'", "id: 'dsh-orb'"))
   })
 
-  it('carries the deferred-install banner in the assembled settings page', () => {
+  it('does not carry the retired update or floating-ball UI in the assembled settings page', () => {
     const text = readFileSync(join(assembled, 'client.js'), 'utf8')
-    assert.match(text, /update\.deferred/)
-    assert.match(text, /updateDeferred/)
+    assert.doesNotMatch(text, /updateDeferred|update\.deferred|启用悬浮球|悬浮球头像|检查更新/u)
+    assert.match(text, /观察框彩带/u)
+    assert.match(text, /frame\/restart/u)
   })
 
   it('resolves every patch row when the tarball is unpacked into the profile', () => {

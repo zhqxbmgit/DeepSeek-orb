@@ -1,7 +1,7 @@
 /**
  * Bookmark registry for `code_agent` background sessions, provided as the
- * app-level `codeAgentRegistry` service for the orb host's bookmark strip.
- * Lifetime is the host process: the strip shows what this process knows,
+ * app-level `codeAgentRegistry` service.
+ * Lifetime is the host process: the registry shows what this process knows,
  * nothing older.
  * The provide lives in {@link apply} on purpose: `cordis.patch.yml` inserts
  * this module at the top level, outside every agent preset. A provide from a
@@ -15,29 +15,17 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionRequestId } from '@deepseek-ai/dsh-api-session-controller/types'
 import { holdsPrompt, lastAssistantText, lastTurnEndedUserAborted } from './code-agent-completion.ts'
-import { desktopToolDenial, presetOf } from './screen-owner.ts'
 
-/** Cordis service name the orb host polls the bookmarks from. */
+/** Cordis service name background status reads. */
 export const CODE_AGENT_REGISTRY = 'codeAgentRegistry'
 
 /** Cordis plugin name for the app-level provider row in `cordis.patch.yml`. */
 export const name = 'computer-use-code-agent-registry'
 
-/**
- * Read at mount time to install the desktop-ownership guard.
- *
- * This row must declare it: cordis refuses `ctx.tools` on a context that did not inject the
- * service. A throw here takes the whole plugin down, and the damage is not local — the registry is
- * never provided, the host's bookmark poll finds no registry and broadcasts nothing, and the strip
- * beside the ball goes empty. Declaring it also lets the row mount before or after the tools
- * runtime. `mountGuard` below keeps the next failure from being this expensive.
- */
-export const inject = ['tools']
-
 /** A finished stretch either delivered its outcome or was cancelled. */
 export type CodeAgentBookmarkState = 'running' | 'completed' | 'stopped'
 
-/** One background Code session as the ball's bookmark strip shows it. */
+/** One background Code session as status tools show it. */
 export interface CodeAgentBookmark {
   readonly sessionId: SessionId
   readonly callerId: SessionId
@@ -96,35 +84,11 @@ export function sharedCodeAgentRegistry(): CodeAgentBookmarkRegistry {
 
 /**
  * Publish the process-wide registry as an app-level service.
- * Inserted at the top level of the patch (never inside a preset) so the orb
- * host — also top level — can read it across the preset boundary.
+ * Inserted at the top level of the patch (never inside a preset) so status
+ * tools can read it across the preset boundary.
  */
 export function apply(ctx: Context): void {
   ctx.provide(CODE_AGENT_REGISTRY, sharedCodeAgentRegistry())
-  mountGuard(ctx)
-}
-
-/**
- * Install the one desktop-ownership guard for the process.
- *
- * It sits at the app level on purpose: a guard registered through a preset's context would live in
- * that preset's scope layer and decide nothing for a sibling preset, and one registered per agent
- * would multiply with every open conversation. From here the same guard answers for every agent,
- * reading the owner the host publishes in {@link setScreenOwner}.
- *
- * Failure is contained on purpose. Providing the registry is this plugin's first job, and that job
- * feeds the bookmark strip: losing the guard costs an unguarded desktop, while losing the registry
- * silently empties the strip. So a guard that cannot be installed is reported and skipped.
- * @param ctx - app-level context; `inject` must already be satisfied for the guard to register.
- */
-function mountGuard(ctx: Context): void {
-  try {
-    ctx.effect(() => ctx.tools.guard((execution) => (
-      desktopToolDenial(execution.agent?.id, execution.name, presetOf(execution.agent))
-    )))
-  } catch (error) {
-    console.error(`dsh-orb: the desktop-ownership guard did not install: ${error instanceof Error ? error.message : String(error)}`)
-  }
 }
 
 export function createCodeAgentRegistry(): CodeAgentBookmarkRegistry {

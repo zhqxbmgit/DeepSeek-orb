@@ -13,13 +13,12 @@ declare module 'electron' {
   }
 
   interface WebContents {
-    send(channel: string, ...args: unknown[]): void
     setWindowOpenHandler(handler: () => { action: 'deny' }): void
-    on(event: 'will-navigate' | 'did-finish-load' | 'context-menu', listener: (event: { preventDefault(): void }, params?: { isEditable?: boolean; hasSelection?: boolean }) => void): void
+    on(
+      event: 'will-navigate' | 'did-finish-load',
+      listener: (event: { preventDefault(): void }) => void,
+    ): void
     executeJavaScript(code: string): Promise<unknown>
-    session: {
-      setPermissionRequestHandler(handler: (contents: WebContents, permission: string, callback: (granted: boolean) => void) => void): void
-    }
   }
 
   interface BrowserWindow {
@@ -35,16 +34,10 @@ declare module 'electron' {
     showInactive(): void
     hide(): void
     setIgnoreMouseEvents(ignore: boolean, options?: { forward?: boolean }): void
-    blur(): void
-    once(event: 'ready-to-show', listener: () => void): void
-    on(event: 'closed', listener: () => void): void
     webContents: WebContents
   }
 
   interface BrowserWindowOptions {
-    title?: string
-    x?: number
-    y?: number
     width?: number
     height?: number
     frame?: boolean
@@ -61,11 +54,8 @@ declare module 'electron' {
     show?: boolean
     backgroundColor?: string
     roundedCorners?: boolean
-    /** Windows only. `false` drops the resize border on a frameless window. */
-    thickFrame?: boolean
     type?: string
     webPreferences?: {
-      preload?: string
       contextIsolation?: boolean
       nodeIntegration?: boolean
       sandbox?: boolean
@@ -77,67 +67,13 @@ declare module 'electron' {
   export const app: {
     whenReady(): Promise<void>
     quit(): void
-    exit(code: number): void
-    getLocale?(): string
-    getPath(name: 'userData'): string
-    setActivationPolicy?(policy: 'accessory'): void
     dock?: { hide(): void }
     on(event: 'before-quit' | 'window-all-closed', listener: () => void): void
   }
 
-  export interface MenuItemOptions {
-    label?: string
-    type?: 'checkbox' | 'radio' | 'separator' | 'normal'
-    checked?: boolean
-    enabled?: boolean
-    submenu?: MenuItemOptions[]
-    click?: (item: { checked: boolean }) => void
-  }
-
-  export const Menu: {
-    buildFromTemplate(template: readonly MenuItemOptions[]): { popup(options?: { window?: BrowserWindow }): void }
-  }
-
-  export const dialog: {
-    showMessageBox(window: BrowserWindow, options: {
-      type?: string
-      message: string
-      detail?: string
-      buttons?: string[]
-      defaultId?: number
-      cancelId?: number
-      noLink?: boolean
-    }): Promise<{ response: number }>
-  }
-
   export const screen: {
-    getPrimaryDisplay(): Display
-    getAllDisplays(): Display[]
     getDisplayNearestPoint(point: { x: number; y: number }): Display
-    getDisplayMatching(rect: Rectangle): Display
-    /** Absolute cursor position in DIPs, the same space `BrowserWindow` bounds use. */
-    getCursorScreenPoint(): { x: number; y: number }
     screenToDipRect(window: null, rect: Rectangle): Rectangle
     on(event: 'display-added' | 'display-removed' | 'display-metrics-changed', listener: () => void): void
-  }
-
-  export const ipcMain: {
-    on(channel: string, listener: (event: unknown, ...args: unknown[]) => void): void
-    handle(channel: string, listener: (event: unknown, ...args: unknown[]) => unknown): void
-  }
-
-  export const shell: {
-    openExternal(url: string, options?: { activate?: boolean }): Promise<void>
-  }
-
-  export const clipboard: {
-    writeText(text: string): void
-    readText(): string
-  }
-
-  export const nativeTheme: {
-    themeSource: 'light' | 'dark' | 'system'
-    shouldUseDarkColors: boolean
-    on(event: 'updated', listener: () => void): void
   }
 }

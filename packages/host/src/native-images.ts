@@ -1,5 +1,5 @@
 /**
- * Native images (`.node`, `.dll`, `.exe`) and the in-app update on Windows.
+ * Native images (`.node`, `.dll`, `.exe`) and local package replacement on Windows.
  *
  * Under the desktop's Electron runtime (Node 24.18), deleting a link to a file
  * some process has mapped as a loaded image fails, and so does removing the

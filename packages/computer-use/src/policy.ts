@@ -44,7 +44,12 @@ Working directory for a new code_agent session:
 - When the user names a path (Desktop, a home folder, or an absolute path) → pass that path as cwd.
 - When the user says "here", "this folder", or "the current window" and <frontmost_folder> is present → pass that folder as cwd.
 - When the user says "here", "this folder", or "the current window" and <frontmost_folder> is absent → do not call code_agent. Tell the user the frontmost window is not Finder, so the current folder path is unknown; they should click that Finder window or give a path.
-- Otherwise omit cwd; the tool creates a new subdirectory under this session's workspace.
+- When the task changes or inspects an existing project, call project_context first and pass its project_dir as cwd. The tool reports the AGENTS.md chain the official loader actually retained, with digests and omission/truncation notices. Do not claim the rules are loaded when it reports pending, none, omitted, or stale.
+- Otherwise omit cwd; the tool creates a new subdirectory under this session's workspace. A code_agent started inside a git project uses that project directory instead of minting a subdirectory, so the background session inherits the same AGENTS.md chain.
+
+Read only handoff documents the user named explicitly. Do not scan docs/, history folders, or old logs recursively. The project_context tool accepts at most four named files and bounds each one; use the project's AGENTS.md for the rest.
+
+When a command result matters as evidence, run it through the project's evidence runner from the official pwsh tool. Keep raw stdout and stderr in their own log files, record only simple fields in summary JSON, and never paste a whole process or exception object into JSON. Before reading a large log, check its size and read a bounded head or tail. A bare exit 0 means the command exited; it does not prove tests passed, deployment, or production verification. Report those separately and leave unsupported claims as unverified.
 
 If the user's request names a folder or window that does not match the screenshot or <frontmost_folder>, ask_user_question in this chat. Do not guess. Do not fall back to this session's workspace.
 
@@ -52,9 +57,7 @@ After code_agent returns, tell the user the background Code agent is running. Co
 
 Call code_agent_status when the user asks how many background tasks there are, what they are, where they run, or whether they are still running. Call code_agent_stop when the user wants a background task cancelled. Stopping leaves the session idle; a later code_agent with the same session_id continues that artifact.
 
-When a plugin notice reports that a Code agent session finished, decide again. Do remaining GUI that the result makes possible. If another stretch of file search or file production remains, call code_agent with that session_id. Then tell the user the short conclusion. Do not recite a long report.
-
-When a user message starts with "Desktop selection. Answer in this chat only. Do not call GUI tools or code_agent.", answer in this chat only. Do not call GUI tools, code_agent, or screenshot on that turn.`
+When a plugin notice reports that a Code agent session finished, decide again. Do remaining GUI that the result makes possible. If another stretch of file search or file production remains, call code_agent with that session_id. Then tell the user the short conclusion. Do not recite a long report.`
 
 /**
  * Computer Use policy for one session encoding.
@@ -63,43 +66,6 @@ When a user message starts with "Desktop selection. Answer in this chat only. Do
  */
 export function policyFor(mode: CoordinateMode): string {
   return `${POLICY_BEFORE_COORDINATES}${mode === 'pixel' ? PIXEL_COORDINATES : MILLIFRACTION_COORDINATES}${POLICY_AFTER_COORDINATES}`
-}
-
-/**
- * Replacement for the paragraph that teaches the coordinate space, for a session that may not touch
- * the screen at all. The parenthetical spans are quoted from {@link MILLIFRACTION_COORDINATES} and
- * {@link PIXEL_COORDINATES}; a rewrite that drops either one fails loudly in the unit suite rather
- * than shipping a background session whose prompt still describes screenshots it will never see.
- */
-const BACKGROUND_NO_COORDINATES = [
-  'Coordinates: none. You are in the background, so this session cannot take or receive screenshots.',
-  'Every GUI tool (click, input_text, scroll, hotkey, wait, long_wait, screenshot, long_press, drag,',
-  'open_in_browser, open_in_finder, list_apps, open_app) and the shell (bash) is refused for you and',
-  'will fail if you call it. Do not call them, and do not describe acting on the screen.',
-].join(' ')
-
-/**
- * Policy section text for a ball conversation the panel does not currently show.
- *
- * The desktop belongs to the conversation the user is looking at: a completion notice may wake any
- * conversation, and only that one may move the mouse. The model still gets the full delegation and
- * coordination rules — it can answer, search, ask, and hand work to a background Code session — so
- * this replaces the capability sentences instead of dropping the policy. See `screen-owner.ts` for
- * the matching execution-time guard.
- * @returns the assembled background policy section text.
- */
-export function backgroundPolicyFor(): string {
-  const foreground = policyFor('millifraction')
-  // The capability sentences are the coordinate paragraph, which is a single string constant. A
-  // rewrite that splits or renames it must fail loudly in the unit suite rather than quietly hand a
-  // background session a prompt that still describes screenshots it will never receive. At runtime
-  // the fallback is the foreground text: teaching too much is survivable, while letting a prompt
-  // assembly throw would take the whole request down.
-  if (!foreground.includes(MILLIFRACTION_COORDINATES)) {
-    console.error('computer-use: the coordinate paragraph moved; the background policy falls back to the foreground text')
-    return foreground
-  }
-  return foreground.replace(MILLIFRACTION_COORDINATES, BACKGROUND_NO_COORDINATES)
 }
 
 /**

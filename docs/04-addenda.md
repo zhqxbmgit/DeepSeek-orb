@@ -366,3 +366,41 @@ Windows 上的实测反馈:在浏览器里点球、输入、回车提交后,**Ag
 - 隔离界面 94/94,日志 `.zcode/ui/logs/20261019-235537-0.2.2-smoke.log`(完整 stdout/stderr 与 `exit=0`,测试时间、构建产物路径与四个资源哈希记录在日志头);同目录 `20261019-235537-0.2.2-node-test.log` / `…-vitest.log` 保存全量测试输出。
 - **打包**:`C:\dsh-orb-cordis\dsh-orb-0.2.2.tgz`,24,455,181 字节,SHA-256 `09B3F1CF63CF328EC8539A4E10F13E2159EC2EF7F61CC3343023B0BBB832E2B0`;保留 0.2.0 / 0.2.1 旧包。已解包核对版本与新增资源。
 - **未实测**:真实 FVK、真实 Harness 模型回合、真实 Electron 窗口/重启恢复、安装与回退命令;仍需用户本人验收。
+
+## 26. 历史回放不得确认新提交:显式 submission id(2026-10-20)
+
+检查方复现:同一会话以前发过“继续任务”,这次再发同文本并超时,切到别的历史会话再切回,Host 的 `openSession() → replaying=true → drain()` 会把旧的 `user:<seq>` 块回放出来;0.2.2 的 tracker 只按“同会话 + 同文本 + 最早发送”匹配,于是把旧消息当成本次提交的确认,删掉未确认记录并可能清掉自动回填。旧历史消息不能证明这次提交已送达。
+
+- **根因**:确认依据里没有“这是本次实时提交的回显”这一事实。`key` 的 `user:<seq>` / `user:<uuid>` 形状只是 Host 内部写法,不应拿来猜;会话和文本都可能与历史重复。
+- **修法**:页面为每次提交生成一个 submission id(`sub-<序号>-<uuid>`),随 `prompt` 经 preload、helper 主进程送到 Host。`OrbRuntime.onPrompt()` 校验形状后把它写进**本次实时**用户块的 `submissionId`;历史回放走 `consume('user/message')` 的 `user:<seq>` 分支,不带该字段。`createSubmitTracker()` 改为按 `block.submissionId` 匹配,文本相等只作完整性二次检查;没有 id 的块(历史回放、旧数据、重复旧投递)一律不确认。关联信息只随这一次消息走,不持久化、不新建消息框架。
+- **保留的行为**:正常实时回显仍只有一条用户消息;双击/连续 Enter 只发一次;两次有意发送同文本各带不同 id、各自确认;超时后真正的迟到实时回显仍能收敛;未确认卡片/草稿/自动回填/放回/复制/移除不变;超时仍是“送达未知”,不自动重发。
+- **Host 契约测试**:`runtime.test.ts` 的实时回显用例现在断言每条 live 用户块携带自己的 `submissionId`;历史回放用例断言回放用户块全部无 `submissionId`,并把真实回放帧喂给真实 tracker,断言待确认记录仍在。另加一例:无 id 或 id 不可用的 prompt 仍会提交,但其回显不带 id,页面只能保持未知。
+- **隔离界面验证**:stub 按 Host 真实结构给 live 回显带 id、给历史回放块不带 id。新增场景:超时后先收到同文本历史回放——卡片与自动回填保持,随后同 id 的 live 回显才收敛;重复投递已消费的旧 id 不会确认后来同文本的新提交;两次同文本提交 id 不同、各自确认;A 未确认时 B 的 live 回显与旧 A 回显都不误清/误解锁。界面日志见 `.zcode/ui/logs/20261020-114401-0.2.3-smoke.log`。
+- **验证**:`pnpm typecheck` / `pnpm build` 通过;`submit-confirmation.test.ts` 8 例(实时 id、历史回放同会话同文本、迟到、两个同文本、旧 id 重复、A/B 并发、显式移除、空载荷);`shell-render.test.ts` 增加页面→preload→helper→Host 的 id 链路守卫;`node:test` 418 例,417 通过(唯一失败仍是既有 POSIX 夹具);vitest 321/321;隔离界面 100/100。
+- **打包**:`C:\dsh-orb-cordis\dsh-orb-0.2.3.tgz`,24,455,833 字节,SHA-256 `3823ADFDA21DFB76F61F82D8082416929FFC5DD584166EFDCE83C7187949AF3A`;保留 0.2.0 / 0.2.1 / 0.2.2。已解包核对版本、host/helper 关联字段与页面资源。
+- **限制**:id 只能证明“Host 收到了这条实时提交”,不能证明任务执行成功,也不承诺绝对只执行一次;Host 若没有回传 id(包版本不匹配),页面保持“未知”并保留卡片。真实 FVK、真实 Harness 模型回合、真实 Electron 窗口/重启恢复、安装与回退命令仍未执行。
+
+## 27. 真实运行修正:异步剪贴板与连点误停(2026-10-20,0.2.4)
+
+0.2.3 真实窗口验收发现两个自动化测试没有覆盖的缺陷:粘贴按钮始终提示“剪贴板里没有文本”;快速双击发送时第二击落到刚出现的停止按钮,第 2 回合在 137ms 内被 `aborted/user`。本轮只修这两条链路,保留 submissionId、历史回放、超时卡片、草稿等已有行为。
+
+- **剪贴板根因与修法**:实际 Electron 44 的 `clipboard.readText()` / `writeText()` 返回 Promise。旧 helper 把 Promise 当字符串,故读空;复制也在写入完成前就报成功。新增 [clipboard-io.ts](packages/helper/src/clipboard-io.ts),由 `readClipboardText()` 等待读取、区分空文本与拒绝,由 `writeClipboardText()` 等待写入并返回 `{ ok }`;helper main 的两个 IPC handler 改为 async,`orb:copy` 从 `send` 改为 `invoke`,preload 返回 Promise,[electron.d.ts](packages/helper/src/electron.d.ts) 修正为 `Promise<string>` / `Promise<void>`。renderer 的 `writeClipboard()` 只有收到 `ok:true` 才返回成功;消息复制、未确认卡片复制、终端/读取/搜索卡片复制都走同一路径,失败提示 `copyFailed`,成功后才显示「已复制」。
+- **连点误停根因与修法**:旧布局在运行时把 composer 和粘贴行整体隐藏,把停止按钮放进 composer 的同一像素位置。新布局让 composer 留在原位但禁用:输入框 `contenteditable=false`、发送按钮 `disabled` 并显示「运行中」;停止按钮放在 composer 旁边独立的 `#turnbar`(高 54px 大按钮 + 范围说明),上下展开方向都在 composer 外侧,不再与发送位置重叠。面板在运行时为停止条预留高度,各档尺寸不挤压。
+- **测试**:新增 `clipboard-io.test.ts` 6 例(异步成功、空文本、拒绝、非字符串、旧同步 API、异步写入成功/失败);`shell-render.test.ts` 增加异步读取、`invoke` 复制、Promise 类型、固定分离区域与 `submitting || running` 守卫;冒烟测试 133 项,包含异步粘贴(成功/空/失败/草稿/连续点击)、未确认与消息复制成功/失败、真实坐标单击/双击/三击/稍慢连点只提交一次且不误停、再单击停止生效,以及 340/400/480/560 四档 × 上下两方向共 8 组「发送坐标仍命中禁用发送、发送与停止不重叠」检查。
+- **真实 Electron 复测**:0.2.3 安装证据保留后,官方流程安装 `dsh-orb-0.2.4.tgz`;helper 重启到 PID 31988,随后用官方 plugin manager 热禁用/启用 bundle 强制 Host 重载,helper 变为 26192(13:29:27),设置页与插件详情显示 0.2.4,4 个组件运行中,来源为 `file:C:\dsh-orb-cordis\dsh-orb-0.2.4.tgz`。真实粘贴成功只进草稿;消息复制写入系统剪贴板并显示绿勾;双击发送后第 5 回合正常完成(未被误停);单独单击停止后第 6 回合在 2.4 秒内以 `aborted/user` 结束;「只回复：0.2.4 单指版测试通过」得到完全一致回复。**没有重启整个 Harness**。
+- **FVK 部分记录**:真实 FreeVK 多键点击进入了输入框并弹出中文输入法候选条,点击候选插入了字符;本轮自动点击得到的是 `ü` 而非完整中文句子,键位/候选焦点仍需用户本人按真实节奏验收。没有用模拟输入替代。
+- **验证与证据**:`pnpm typecheck` / `pnpm build` 通过;`node:test` 425 例、424 通过(唯一失败仍是既有 POSIX 夹具);vitest 321/321;隔离界面 133/133。日志 `.zcode/ui/logs/20261020-133301-0.2.4-smoke.log`、`…-node-test.log`、`…-vitest.log`;安装与真实运行证据 `C:\Users\zhq\.dsh\dsh-orb-install-evidence\20261020-132456-0.2.4\`。
+- **打包**:`C:\dsh-orb-cordis\dsh-orb-0.2.4.tgz`,24,456,379 字节,SHA-256 `CE24E22934D99CFCDB8B5E5ED0DD358A4BA2219A4B8CC865B7ADDDC5E4E515ED`;保留 0.2.0 / 0.2.1 / 0.2.2 / 0.2.3。tarball 内 `shell.js` / `floating.css` 与构建目录一致,`main.js` 含 `await clipboard.readText()`。
+- **未完成**:完整 Harness 重启、后台任务继续范围、真实 Electron 窗口重启后的位置/大小恢复、官方卸载演练、完整中文 FVK 句子、用户单指体验验收。官方插件详情页已确认存在左键「卸载」按钮,但本轮未点击执行卸载。
+
+## 28. 多行草稿发送后原发送区连点误停(2026-10-20,0.2.5)
+
+0.2.4 真实复现:`review.json` 中向上展开时,132px 多行草稿的 Send 上边缘点 `(79,484)` 在发送后同一坐标命中 Stop(Stop 顶 437、底 491);向下展开同理。原因是 `clearPrompt()` 立即把 composer 从 132px 恢复为 72px,Send 垂直居中随之下移,Stop 条按 `composer-height + gap` 定位后覆盖了原 Send 的整块命中区。
+
+- **最小修法**:提交时记录 `composer.getBoundingClientRect().height` 到 `composerHeightLock`,并保持 `--composer-height` 为该值;`syncComposerHeight()` 在锁存在时只更新文本/状态、不改高度。清空文字、收到 Host 回显、进入 running 都不会缩回 72px。锁只在该提交对应的 turn 结束(`composerLockSawTurn && !running`)或超时且未 running 时释放,页面 reset 也释放;`clearTranscript()` 不会把锁带到下一个会话。这样原 Send 按钮的整块矩形(不只是中心)在提交/运行期间仍是禁用的 Send,Stop 的独立条从 `composer-height + gap` 开始,不覆盖旧区域。
+- **保留**:0.2.4 的异步剪贴板/复制确认、`submissionId` 实时回显、历史回放不确认、超时卡片、草稿保留、发送/停止固定分区均未改。Stop 仍是独立 54px 大按钮,单次单击生效。
+- **测试**:新增 `.zcode/ui/multiline.mjs` 专用矩阵:单行、撑满 132px 的多行、长文本自动换行;向上/向下;340×480、400×560、480×660、560×760 四档;每档记录提交前 Send 矩形、中心/上/下/左/右五个有效点,提交后检查五点全部仍命中禁用的 Send;在中心与关键边缘同坐标连点,确认 sent 不增、stopped 不增;再单独点 Stop,确认 stopped 增 1。**241/241 通过**。原 `repro.mjs` 复跑后 up/down 均为 `hit:send`、`height:132px`、`stoppedAfter:0`。
+- **真实 Electron 复测**:安装 0.2.5(helper 2960,13:54:48)后,用真实粘贴/多行草稿将 composer 撑到 132px,在向上展开的 Send 上边缘点提交;350ms 后同一坐标连点两次,再单独点 Stop。session 只出现一条用户 prompt(seq 129),turn 在 2 秒内 `aborted/user`(seq 134);没有第二笔提交或误停。设置页显示 0.2.5,helper 加载安装目录 0.2.5 资源。
+- **验证与证据**:`pnpm typecheck` / `pnpm build` 通过;`node:test` 426 例、425 通过(唯一失败仍是既有 POSIX 夹具);vitest 321/321;普通冒烟 133/133;多行矩阵 241/241。日志 `.zcode/ui/logs/20261020-135721-0.2.5-multiline.log`、`…-smoke.log`、`…-node-test.log`、`…-vitest.log`;安装与真实证据 `C:\Users\zhq\.dsh\dsh-orb-install-evidence\20261020-135441-0.2.5\`。
+- **打包**:`C:\dsh-orb-cordis\dsh-orb-0.2.5.tgz`,24,456,721 字节,SHA-256 `65014FC3F24FE4102073D73A426589966E2639988D5FA88ED4D66178678C73FB`;保留 0.2.0–0.2.4。tarball 内 `shell.js` / `floating.css` 与安装目录一致,`shell.js` 含 `composerHeightLock`。
+- **未完成**:完整 Harness 重启、后台任务继续范围、官方卸载演练、完整中文 FVK 句子、用户单指体验验收。真实 Electron 只复测了当前 400×560 向上方向;四档×双向由无头矩阵覆盖。

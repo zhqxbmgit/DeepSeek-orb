@@ -19,7 +19,6 @@ import * as ComputerUse from '../src/index.ts'
 import { POLICY, policyFor } from '../src/policy.ts'
 import { formatScreenEnvelope } from '../src/observe.ts'
 import { screenLockState } from '../src/gui-lock.ts'
-import { screenOwnerState } from '../src/screen-owner.ts'
 import { UNSUPPORTED_DESKTOP_MESSAGE } from '../src/unsupported.ts'
 import * as waitModule from '../src/wait.ts'
 import * as screenshotModule from '../src/screenshot.ts'
@@ -86,9 +85,6 @@ afterEach(async () => {
   vi.restoreAllMocks()
   for (const ctx of contexts.splice(0)) await ctx.fiber.dispose()
   for (const home of homes.splice(0)) await rm(home, { recursive: true, force: true })
-  // The desktop owner is a process-global record shared with the host; a test that published one
-  // must not decide the next test's policy text.
-  screenOwnerState().ownerId = ''
 })
 
 beforeEach(() => {
@@ -795,10 +791,7 @@ describe('computer-use tools', () => {
     expect(POLICY).toContain('today\'s weather')
     expect(POLICY).toContain('code_agent_status')
     expect(POLICY).toContain('code_agent_stop')
-    expect(POLICY).toContain(
-      'When a user message starts with "Desktop selection. Answer in this chat only. Do not call GUI tools or code_agent."',
-    )
-    expect(POLICY).toContain('Do not call GUI tools, code_agent, or screenshot on that turn')
+    expect(POLICY).not.toContain('Desktop selection')
     for (const schema of ctx.tools.schemas()) {
       expect(schema.description, schema.name).not.toContain('Exclusive')
       expect(schema.description, schema.name).not.toContain('do not combine')

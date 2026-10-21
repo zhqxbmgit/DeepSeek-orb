@@ -1,3 +1,6 @@
+import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -6,7 +9,7 @@ import type { UserMessage } from '@deepseek-ai/dsh-session'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
-import { apply, BACKGROUND_ROLE, inject, name, queuedTaskText, slugFromTask, STATUS_TOOL_NAME, STOP_TOOL_NAME, TOOL_NAME, uniqueDirectory } from '../src/code-agent.ts'
+import { apply, BACKGROUND_ROLE, inject, name, PROJECT_CONTEXT_TOOL_NAME, queuedTaskText, slugFromTask, STATUS_TOOL_NAME, STOP_TOOL_NAME, TOOL_NAME, uniqueDirectory } from '../src/code-agent.ts'
 import {
   COMPLETION_BODY_MAX_CHARS,
   watchCodeAgentCompletion,
@@ -277,9 +280,11 @@ function text(result: { content: readonly { type: string; text?: string }[] }): 
 }
 
 const contexts: Context[] = []
+const projectRoots: string[] = []
 
 afterEach(async () => {
   for (const ctx of contexts.splice(0)) await ctx.fiber.dispose()
+  for (const root of projectRoots.splice(0)) await rm(root, { recursive: true, force: true })
 })
 
 async function setup(options: {
@@ -289,6 +294,7 @@ async function setup(options: {
   readonly workspaceId?: string
   readonly workspace?: 'miss' | 'throw' | 'invalid'
   readonly live?: Map<SessionId, FakeAgent>
+  readonly inspectEvents?: Map<SessionId, readonly { type: string; data: unknown }[]>
   readonly withoutInitiatorThrows?: boolean
   readonly orbModel?: {
     readonly provider: string
@@ -345,7 +351,7 @@ async function setup(options: {
     async inspect(sessionId: SessionId) {
       const meta = headers.get(sessionId)
       if (meta === undefined) throw new Error(`session "${sessionId}" not found`)
-      return { meta }
+      return { meta, events: options.inspectEvents?.get(sessionId) ?? [] }
     },
   })
   if (live !== undefined) {
@@ -611,9 +617,10 @@ describe('code_agent plugin', () => {
       async inspect(sessionId: SessionId) {
         const session = sessions.get(sessionId)
         if (session === undefined) throw new Error(`session "${sessionId}" not found`)
-        return { meta: { ...session.header, agentPreset: 'standard' } }
+        return { meta: { ...session.header, cwd: '/workspace', agentPreset: 'standard' }, events: session.snapshotEvents() }
       },
     })
+    ctx.provide('workingDirectory', { get: () => '/workspace' })
     apply(ctx)
     await execute(ctx, { task: 'Write a Word document' })
     await execute(ctx, { task: 'Make the Word font green', session_id: STANDARD })
@@ -636,6 +643,120 @@ describe('code_agent plugin', () => {
     expect(omitted.created).toEqual([{ agentPreset: 'standard' }])
   })
 
+  it('starts a background session at the calling project directory and names the scope', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-orb-code-project-'))
+    projectRoots.push(root)
+    await mkdir(join(root, '.git'))
+    const caller = {
+      id: CALLER,
+      session: { header: { id: CALLER, agentPreset: 'computer-use', cwd: root } },
+    }
+    const { ctx, created, prompted } = await setup()
+    const result = await execute(ctx, { task: 'Fix the build' }, caller)
+    expect(result.isError).toBe(false)
+    expect(created).toEqual([{ agentPreset: 'standard', cwd: root }])
+    const queued = prompted[0]?.content[0]?.text ?? ''
+    expect(queued).toContain(`Project scope: ${root}`)
+    expect(queued).toContain('loads the applicable AGENTS.md/CLAUDE.md chain')
+    expect(queued).toContain('Fix the build')
+    expect(queued.endsWith(BACKGROUND_ROLE)).toBe(true)
+  })
+
+  it('rejects an explicit cwd that differs from the live session current directory', async () => {
+    const a = await mkdtemp(join(tmpdir(), 'dsh-orb-code-cwd-live-a-'))
+    const b = await mkdtemp(join(tmpdir(), 'dsh-orb-code-cwd-live-b-'))
+    projectRoots.push(a, b)
+    for (const root of [a, b]) await mkdir(join(root, '.git'))
+    const caller = {
+      id: CALLER,
+      session: { header: { id: CALLER, agentPreset: 'computer-use', cwd: a } },
+    }
+    const liveCaller = createFakeAgent(CALLER)
+    const liveCode = createFakeAgent(STANDARD)
+    const { ctx, prompted } = await setup({ live: new Map([[CALLER, liveCaller], [STANDARD, liveCode]]) })
+    let current = a
+    let setCalls = 0
+    ctx.provide('workingDirectory', {
+      get: session => session === liveCode.session ? current : a,
+      set: async () => { setCalls += 1 },
+    })
+    await execute(ctx, { task: 'Initial task', cwd: a }, caller)
+    current = b
+    const rejected = await execute(ctx, { task: 'Continue A', session_id: STANDARD, cwd: a }, caller)
+    expect(rejected.isError).toBe(true)
+    expect(text(rejected)).toContain('does not match the current directory')
+    expect(prompted).toHaveLength(1)
+    expect(setCalls).toBe(0)
+
+    const accepted = await execute(ctx, { task: 'Continue B', session_id: STANDARD, cwd: b }, caller)
+    expect(accepted.isError).toBe(false)
+    expect(prompted[1]?.content[0]?.text).toContain(`Project scope: ${b}`)
+    const implicit = await execute(ctx, { task: 'Continue implicitly', session_id: STANDARD }, caller)
+    expect(implicit.isError).toBe(false)
+    expect(prompted[2]?.content[0]?.text).toContain(`Project scope: ${b}`)
+  })
+
+  it('uses persisted working-directory changes for a cold session and rejects stale cwd', async () => {
+    const a = await mkdtemp(join(tmpdir(), 'dsh-orb-code-cwd-cold-a-'))
+    const b = await mkdtemp(join(tmpdir(), 'dsh-orb-code-cwd-cold-b-'))
+    projectRoots.push(a, b)
+    for (const root of [a, b]) await mkdir(join(root, '.git'))
+    const caller = {
+      id: CALLER,
+      session: { header: { id: CALLER, agentPreset: 'computer-use', cwd: a } },
+    }
+    const { ctx, prompted } = await setup({
+      inspectEvents: new Map([[STANDARD, [{ type: 'working-directory/change', data: { cwd: b } }]]]),
+    })
+    await execute(ctx, { task: 'Initial task', cwd: a }, caller)
+    const stale = await execute(ctx, { task: 'Continue A', session_id: STANDARD, cwd: a }, caller)
+    expect(stale.isError).toBe(true)
+    expect(text(stale)).toContain('does not match the current directory')
+    expect(prompted).toHaveLength(1)
+    const accepted = await execute(ctx, { task: 'Continue B', session_id: STANDARD, cwd: b }, caller)
+    expect(accepted.isError).toBe(false)
+    expect(prompted[1]?.content[0]?.text).toContain(`Project scope: ${b}`)
+    const implicit = await execute(ctx, { task: 'Continue implicitly', session_id: STANDARD }, caller)
+    expect(implicit.isError).toBe(false)
+    expect(prompted[2]?.content[0]?.text).toContain(`Project scope: ${b}`)
+  })
+
+  it('keeps the project scope note when continuing that background session', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-orb-code-project-'))
+    projectRoots.push(root)
+    await mkdir(join(root, '.git'))
+    const caller = {
+      id: CALLER,
+      session: { header: { id: CALLER, agentPreset: 'computer-use', cwd: root } },
+    }
+    const { ctx, prompted } = await setup()
+    await execute(ctx, { task: 'Fix the build' }, caller)
+    await execute(ctx, { task: 'Run the tests', session_id: STANDARD }, caller)
+    expect(prompted[1]?.content[0]?.text).toContain(`Project scope: ${root}`)
+  })
+
+  it('uses the workingDirectory service for new and continued background work', async () => {
+    const a = await mkdtemp(join(tmpdir(), 'dsh-orb-code-cwd-a-'))
+    const b = await mkdtemp(join(tmpdir(), 'dsh-orb-code-cwd-b-'))
+    projectRoots.push(a, b)
+    for (const root of [a, b]) await mkdir(join(root, '.git'))
+    const caller = {
+      id: CALLER,
+      session: { header: { id: CALLER, agentPreset: 'computer-use', cwd: a } },
+    }
+    const liveCaller = createFakeAgent(CALLER)
+    const liveCode = createFakeAgent(STANDARD)
+    const { ctx, created, prompted } = await setup({ live: new Map([[CALLER, liveCaller], [STANDARD, liveCode]]) })
+    let reads = 0
+    ctx.provide('workingDirectory', { get: () => { reads += 1; return b } })
+    await execute(ctx, { task: 'Fix the build' }, caller)
+    expect(created[0]?.cwd).toBe(b)
+    expect(prompted[0]?.content[0]?.text).toContain(`Project scope: ${b}`)
+    await execute(ctx, { task: 'Continue', session_id: STANDARD }, caller)
+    expect(prompted[1]?.content[0]?.text).toContain(`Project scope: ${b}`)
+    expect(reads).toBeGreaterThanOrEqual(2)
+  })
+
   it('pins GUI versus code_agent routing in policy and the tool description', async () => {
     const { ctx } = await setup()
     expect(POLICY).toContain('opening WeChat')
@@ -656,6 +777,9 @@ describe('code_agent plugin', () => {
     expect(POLICY).toContain('Do not guess')
     expect(POLICY).toContain('code_agent_status')
     expect(POLICY).toContain('code_agent_stop')
+    expect(POLICY).toContain('project_context')
+    expect(POLICY).toContain('Do not claim the rules are loaded')
+    expect(POLICY).toContain('A bare exit 0 means the command exited')
     expect(POLICY).toContain('plugin notice')
     const schema = ctx.tools.schemas().find(entry => entry.name === TOOL_NAME)
     expect(schema?.description).toContain('Omit session_id')
@@ -665,6 +789,17 @@ describe('code_agent plugin', () => {
     expect(schema?.description).toContain('plugin notice')
     expect(schema?.description).toContain('still digging')
     expect(schema?.description).toContain('Do not recite a long report')
+    const projectSchema = ctx.tools.schemas().find(entry => entry.name === PROJECT_CONTEXT_TOOL_NAME)
+    expect(projectSchema?.description).toContain('AGENTS.md/CLAUDE.md')
+    expect(projectSchema?.description).toContain('does not inject instruction bodies again')
+    expect(projectSchema?.description).toContain('at most 4 handoff documents')
+    expect(ctx.tools.get(PROJECT_CONTEXT_TOOL_NAME)?.presentCall?.({
+      project_dir: process.cwd(),
+    })).toMatchObject({
+      card: 'generic',
+      title: 'Project context',
+      kind: 'read',
+    })
     expect(ctx.tools.get(TOOL_NAME)?.presentCall?.({ task: 'Write a Word document' })).toMatchObject({
       card: 'generic',
       title: 'Code agent',

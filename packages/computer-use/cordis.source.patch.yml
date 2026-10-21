@@ -8,6 +8,10 @@
         id: computer-use
         order: 20
         plugins:
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config:
+              maxBytes: 65536
           - id: tool-computer-use
             name: './src/index.ts'
             config:

@@ -3,8 +3,8 @@
  * A later `saveSelection` is queued behind that write, so the previous default is restored.
  * Those settings fields are volatile, so the write does not restart plugins.
  *
- * Calls are serialized across every copy of this module in the process, so the ball and `code_agent`
- * cannot interleave their select and restore steps. A short window still remains: official
+ * Calls are serialized across every copy of this module in the process, so concurrent `code_agent`
+ * sessions cannot interleave their select and restore steps. A short window still remains: official
  * `selectModel` has no session-only option, so another window that creates a session between the
  * official write and the restore sees the chosen model once.
  */

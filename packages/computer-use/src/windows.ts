@@ -115,6 +115,12 @@ export interface WindowsDesktopOps {
   /** Replace the clipboard with a saved snapshot, format by format. */
   restoreClipboard(snapshot: ClipboardSnapshot): void
   setClipboardText(text: string): void
+  /**
+   * Type text directly with Win32 Unicode key events, without replacing the
+   * clipboard. Optional for test operations and older hosts; production Windows
+   * implements it so CJK input cannot be blocked by clipboard ownership.
+   */
+  typeUnicode?(text: string, signal?: AbortSignal): void
   copyImageFile(path: string): void
   listWindowApps(): readonly string[]
   /**
@@ -225,6 +231,62 @@ const MODIFIER_GAP_MS = 20
 const CLIPBOARD_SETTLE_MS = 30
 /** Wait after Ctrl+V before restoring the clipboard, so the target reads the pasted text. */
 const PASTE_SETTLE_MS = 80
+/**
+ * Let the focus click (and a replace chord) settle before the first character.
+ * Without it, a newly activated native editor can drop the first one or two
+ * character events even though the click itself succeeded.
+ */
+const FOCUS_SETTLE_MS = 80
+
+/** One insertion action for {@link unicodeTextActions}. */
+export type UnicodeTextAction =
+  | { readonly kind: 'unicode'; readonly unit: number }
+  | { readonly kind: 'tab' }
+  | { readonly kind: 'line-break' }
+
+/**
+ * Turn model-supplied text into insertion-only actions.
+ *
+ * A line break must never be a bare Enter: in a chat composer that submits
+ * the form. It is sent as Shift+Enter, the conventional line-break chord, and
+ * `submit` remains the only action that presses plain Enter. A tab is a
+ * literal U+0009 character delivered as Unicode input, never VK_TAB, so the
+ * rest of the text cannot silently move into another control. Other C0
+ * controls (backspace, escape, NUL, ...) would act as editing or navigation
+ * keys, so they are rejected before the focus click.
+ * @param text - exact text the caller asked to insert.
+ * @returns ordered insertion actions; CRLF counts as one line break.
+ * @throws when the text contains a control character other than CR, LF, or Tab.
+ */
+export function unicodeTextActions(text: string): UnicodeTextAction[] {
+  const actions: UnicodeTextAction[] = []
+  for (let index = 0; index < text.length; index += 1) {
+    const unit = text.charCodeAt(index)
+    if (unit === 0x0D) {
+      if (text.charCodeAt(index + 1) === 0x0A) index += 1
+      actions.push({ kind: 'line-break' })
+      continue
+    }
+    if (unit === 0x0A) {
+      actions.push({ kind: 'line-break' })
+      continue
+    }
+    if (unit === 0x09) {
+      actions.push({ kind: 'tab' })
+      continue
+    }
+    if (unit < 0x20 || unit === 0x7F) {
+      throw new Error(
+        `computer-use: input_text cannot insert control character U+${unit
+          .toString(16)
+          .toUpperCase()
+          .padStart(4, '0')}; line breaks and Tab are supported, and submit is the only Enter`,
+      )
+    }
+    actions.push({ kind: 'unicode', unit })
+  }
+  return actions
+}
 
 interface PostedKey {
   readonly vk: number
@@ -543,9 +605,27 @@ export function createWindowsDesktopBackend(ops?: WindowsDesktopOps): DesktopBac
 
     async typeText(input: TypeInput, signal) {
       const host = await use()
+      // Reject editing/navigation controls before the focus click: no half
+      // input, and no chance for a backspace or escape to act on the target.
+      unicodeTextActions(input.text)
       const abort = liveSignal(signal)
       await clickAt(host, 'left', 1, pointOf(input.position, input.screen), abort)
-      if (input.replace) await chord(host, [postedVk(0x11), postedVk(0x41)], abort)
+      await delay(FOCUS_SETTLE_MS, abort)
+      if (input.replace) {
+        await chord(host, [postedVk(0x11), postedVk(0x41)], abort)
+        await delay(FOCUS_SETTLE_MS, abort)
+      }
+      // Unicode key events avoid taking clipboard ownership. A delayed-rendered
+      // clipboard format (an image, HTML, or ChatGPT's rich selection) can block
+      // GetClipboardData indefinitely, which made the first real CJK input hang.
+      if (host.typeUnicode !== undefined) {
+        host.typeUnicode(input.text, abort)
+        if (input.submit) {
+          await delay(CLIPBOARD_SETTLE_MS, abort)
+          await chord(host, [postedVk(0x0D)], abort)
+        }
+        return
+      }
       const previous = host.saveClipboard()
       try {
         host.setClipboardText(input.text)

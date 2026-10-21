@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Settings page for the floating ball. Avatar, both Agent models, the selection switch, and millifraction coordinates.",
+  "description": "Main-window settings for dsh-orb: background model, coordinates, and the observation ribbon.",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "exports": {

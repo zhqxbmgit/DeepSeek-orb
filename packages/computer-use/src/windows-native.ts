@@ -14,7 +14,14 @@ import koffi from './koffi.ts'
 import { compositeCursor, cursorDrawPlacement, flipRows, resolveCursorAlpha } from './cursor.ts'
 import { appOwnerPid } from './windows-foreground.ts'
 import type { WindowsDesktopSnapshot, WindowsWindowFact } from './windows-foreground.ts'
-import { clipboardRestoreIncomplete, encodeBgraPng, type ClipboardSnapshot, type WindowsDesktopOps, type WindowsRect } from './windows.ts'
+import {
+  clipboardRestoreIncomplete,
+  encodeBgraPng,
+  unicodeTextActions,
+  type ClipboardSnapshot,
+  type WindowsDesktopOps,
+  type WindowsRect,
+} from './windows.ts'
 
 const SRCCOPY = 0x00CC0020
 const MOUSEEVENTF_MOVE = 0x0001
@@ -29,6 +36,7 @@ const INPUT_MOUSE = 0
 const INPUT_KEYBOARD = 1
 const KEYEVENTF_EXTENDEDKEY = 0x0001
 const KEYEVENTF_KEYUP = 0x0002
+const KEYEVENTF_UNICODE = 0x0004
 const CF_UNICODETEXT = 13
 const GMEM_MOVEABLE = 0x0002
 /** Integrity RID of a normal, unelevated process (`S-1-16-8192`). */
@@ -525,6 +533,61 @@ function postKey(api: Bindings, virtualKey: number, down: boolean, extended: boo
   }
 }
 
+/** Post one UTF-16 code unit as a Unicode key event; no keyboard layout is involved. */
+function postUnicodeUnit(api: Bindings, unit: number, down: boolean): void {
+  const input = {
+    type: INPUT_KEYBOARD,
+    u: {
+      ki: {
+        wVk: 0,
+        wScan: unit,
+        dwFlags: KEYEVENTF_UNICODE | (down ? 0 : KEYEVENTF_KEYUP),
+        time: 0,
+        dwExtraInfo: 0,
+      },
+    },
+  }
+  if (api.SendInput(1, [input], INPUT.size) !== 1) {
+    throw new Error('computer-use: Unicode input failed')
+  }
+}
+
+/** Send Shift+Enter, the line-break chord, releasing Shift on every path. */
+function postLineBreak(api: Bindings): void {
+  postKey(api, 0x10, true, false)
+  try {
+    postKey(api, 0x0D, true, false)
+    postKey(api, 0x0D, false, false)
+  } finally {
+    postKey(api, 0x10, false, false)
+  }
+}
+
+/**
+ * Type text with `SendInput`.
+ *
+ * Newlines become Shift+Enter line breaks so a chat composer does not submit;
+ * Tab becomes the literal U+0009 character and never VK_TAB, so focus cannot
+ * move to another control mid-text. No other control character reaches here:
+ * {@link unicodeTextActions} rejects it before the click.
+ * @param text - text to type into the focused control.
+ * @param signal - abort checked between insertion actions.
+ */
+function typeUnicodeText(api: Bindings, text: string, signal?: AbortSignal): void {
+  for (const action of unicodeTextActions(text)) {
+    signal?.throwIfAborted()
+    if (action.kind === 'line-break') {
+      postLineBreak(api)
+    } else if (action.kind === 'tab') {
+      postUnicodeUnit(api, 0x09, true)
+      postUnicodeUnit(api, 0x09, false)
+    } else {
+      postUnicodeUnit(api, action.unit, true)
+      postUnicodeUnit(api, action.unit, false)
+    }
+  }
+}
+
 function withClipboard(api: Bindings, write: () => void): void {
   if (api.OpenClipboard(null) === 0) throw new Error('computer-use: OpenClipboard failed')
   try {
@@ -929,6 +992,9 @@ export function createProductionWindowsOps(): WindowsDesktopOps {
     },
     key(virtualKey, down, extended = false) {
       postKey(api, virtualKey, down, extended)
+    },
+    typeUnicode(text, signal) {
+      perMonitor(() => { typeUnicodeText(api, text, signal) })
     },
     saveClipboard() {
       const seen: { format: number; size: number }[] = []

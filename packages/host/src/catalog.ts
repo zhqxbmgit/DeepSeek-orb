@@ -1,4 +1,4 @@
-/** Host model catalog reduced to the fields the ball menu and the settings page render. */
+/** Host model catalog reduced to the fields the settings page renders. */
 
 export interface CatalogEffort {
   readonly id: string

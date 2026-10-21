@@ -1,93 +1,44 @@
 /**
- * Floating ball window. The official dsh process owns the session; this process only draws and forwards one socket.
+ * Observation-ribbon helper.
+ *
+ * This is the only auxiliary process the plugin keeps: a frameless,
+ * click-through Electron window that draws the coloured observation ribbon and
+ * acknowledges overlay intervals. It has no chat, sessions, menu, avatar, or
+ * clipboard code; the Host owns all product state.
  */
 
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, screen, shell } from 'electron'
-import { readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { request as httpRequest } from 'node:http'
+import { app, BrowserWindow, screen } from 'electron'
 import { createConnection, type Socket } from 'node:net'
-import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { MAX_AVATAR_RESPONSE_BYTES, readAvatarChoice, type AvatarChoice } from './avatar.ts'
-import { collectChromeWindowIds, type NativeHandleWindow } from './chrome-windows.ts'
+import { collectChromeWindowIds } from './chrome-windows.ts'
+import { createFrameDisplay, type FrameDisplay, type FrameWindow } from './frame-display.ts'
 import {
-  AGENT_STRIP_WIDTH, FloatingPlacement, clampedBallOrigin, defaultFloatingBallOrigin, windowBoundsForBall,
-} from './geometry.ts'
-import { contextMenuTemplate } from './menu.ts'
-import { attachOverlays, denyWindowPermissions } from './overlays.ts'
-import { type MenuCatalog, type MenuSelection } from './model-menu.ts'
-import {
-  defaultPanelSize, fitPanelSize, parseGeometryStore, serializeGeometryStore, stepPanelSize,
-  type BallOrigin, type PanelSize, type StoredGeometry,
-} from './panel-geometry.ts'
+  observationFrameCssScript,
+  observationFramePlacement,
+  type OverlayRect,
+} from './overlay-geometry.ts'
 
 const socketAddress = process.env.DSH_ORB_SOCKET ?? ''
 const token = process.env.DSH_ORB_TOKEN ?? ''
-const webPort = process.env.DSH_ORB_WEB_PORT ?? ''
 
-/** Theme preference as stored by the official ui-theme settings section. */
-type ThemeSource = 'light' | 'dark' | 'system'
+/** Delay before acknowledging input begin, so Windows hit-testing commits click-through. */
+const INPUT_APPLY_MS = 80
+/** Reject a socket that never completes the authenticated handshake. */
+const HANDSHAKE_TIMEOUT_MS = 3_000
 
-interface Appearance {
-  theme?: ThemeSource
-  locale?: string
-}
+process.title = 'dsh-orb-frame'
 
-interface ChromeState {
-  overlay: MenuSelection
-  background: MenuSelection
-  millifractionEnabled: boolean
-  openMain: boolean
-  catalog: MenuCatalog
-  /** Newer published version the host found, or null when there is nothing to install. */
-  update: string | null
-}
-
-/**
- * Until the host publishes chrome the menu must not tick a model the profile never
- * chose: the host resolves both tracks, including following the main window.
- */
-const noSelection: MenuSelection = { provider: '', model: '' }
-
-let chrome: ChromeState = {
-  overlay: noSelection,
-  background: noSelection,
-  millifractionEnabled: false,
-  openMain: false,
-  catalog: { groups: [] },
-  update: null,
-}
-let avatarToken = 0
-// Raw preferences as stored; `theme` resolves through nativeTheme, an absent
-// locale falls back to the system languages.
-let appearance: Appearance = readAppearanceEnv()
-
-process.title = 'dsh-orb-helper'
-
-if (!socketAddress || !token) {
-  console.error('dsh-orb helper: socket environment is missing')
+if (socketAddress === '' || token === '') {
+  console.error('dsh-orb frame: socket environment is missing')
   process.exit(1)
 }
 
-if (process.platform === 'darwin') app.setActivationPolicy?.('accessory')
-
-let win: BrowserWindow | undefined
-let tccWait: ((status: unknown) => void) | undefined
-let overlays: {
-  appearance(payload: { dark: boolean; locale: 'zh' | 'en' }): void
-  deliver(message: unknown): boolean
-  chromeWindows(): readonly (NativeHandleWindow | undefined)[]
-} | undefined
-let placement: FloatingPlacement | undefined
+let frame: BrowserWindow | undefined
 let live: Socket | undefined
 let quitting = false
 let buffer = ''
-/** Last bookmark payload, re-sent when the page reloads without a socket reconnect. */
-let lastAgentItems: unknown[] = []
-/** Where the ball and the panel size are remembered; empty until the app is ready. */
-let geometryPath = ''
-/** The size the next expand uses, resolved from the geometry file before the window opens. */
-let restoredPanel: PanelSize | undefined
+let frameReady = false
+let display: FrameDisplay | undefined
 
 app.on('before-quit', () => {
   quitting = true
@@ -99,758 +50,219 @@ app.on('window-all-closed', () => {
 
 void app.whenReady().then(async () => {
   if (process.platform === 'darwin') app.dock?.hide()
-  geometryPath = join(app.getPath('userData'), 'panel-geometry.json')
-  const stored = readGeometry(geometryPath)
-  const restored = restoreOrigin(stored.ball)
-  restoredPanel = stored.panel
-    ? fitPanelSize(stored.panel, screen.getDisplayNearestPoint(restored).workArea)
-    : defaultPanelSize(screen.getPrimaryDisplay().workArea)
-  win = openWindow(restored)
-  try {
-    overlays = await attachOverlays({ ball: () => win, write })
-  } catch (error) {
-    console.error(`dsh-orb helper: overlays did not open: ${error instanceof Error ? error.message : String(error)}`)
-  }
-  placement = new FloatingPlacement(win, (point) => {
-    const display = screen.getDisplayNearestPoint({ x: Math.round(point.x), y: Math.round(point.y) })
-    return { bounds: display.bounds, workArea: display.workArea }
-  }, () => screen.getAllDisplays().map((display) => display.bounds), restoredPanel)
-  // A display being added, removed or rescaled can leave the window partly outside its
-  // work area; the panel re-fits into the new one, and the page learns the new side.
+  frame = openFrame()
+  display = createFrameDisplay({
+    window: frameWindow,
+    ready: () => frameReady,
+    toDip,
+    workArea: workAreaOf,
+    placement: observationFramePlacement,
+    css: observationFrameCssScript,
+    onError: (error) => {
+      write({
+        type: 'overlay-error',
+        code: 'frame-render',
+        message: error instanceof Error ? error.message : String(error),
+      })
+    },
+  })
+  frame.webContents.on('did-finish-load', () => {
+    frameReady = true
+    void publishChromeWindows()
+  })
   const reflow = (): void => {
-    if (!placement) return
-    const state = placement.reflow()
-    persistGeometry()
-    if (win && !win.isDestroyed()) win.webContents.send('orb:expand-state', state)
+    void display?.reflow().catch(() => {
+      // The display reports a current render failure through onError; a
+      // superseded reflow is silent by design.
+    })
   }
   screen.on('display-metrics-changed', reflow)
   screen.on('display-added', reflow)
   screen.on('display-removed', reflow)
-  win.webContents.on('did-finish-load', () => {
-    if (win && !win.isVisible()) win.showInactive()
-    // The page may have loaded after the last appearance or bookmark change.
-    pushAppearance()
-    if (win && !win.isDestroyed()) {
-      // A fresh page holds none of the expansion or strip classes while this window keeps
-      // the width the strip reserved: re-apply the geometry before the chips come back,
-      // or the panel would sit over them until the next expand.
-      applyStrip(lastAgentItems.length > 0)
-      if (lastAgentItems.length > 0) win.webContents.send('orb:agents', lastAgentItems)
+  await frame.loadFile(fileURLToPath(new URL('../assets/observation-frame.html', import.meta.url)))
+  connect()
+})
+
+function connect(): void {
+  const colon = socketAddress.lastIndexOf(':')
+  const host = socketAddress.slice(0, colon)
+  const port = Number(socketAddress.slice(colon + 1))
+  if (host === '' || !Number.isInteger(port) || port <= 0) {
+    console.error('dsh-orb frame: invalid socket address')
+    app.quit()
+    return
+  }
+  const socket = createConnection({ host, port })
+  live = socket
+  socket.setEncoding('utf8')
+  const handshake = setTimeout(() => {
+    if (live === socket && buffer === '') socket.destroy()
+  }, HANDSHAKE_TIMEOUT_MS)
+  handshake.unref()
+  socket.on('connect', () => {
+    clearTimeout(handshake)
+    socket.write(`${JSON.stringify({ type: 'hello', token, pid: process.pid })}\n`)
+    void publishChromeWindows()
+  })
+  socket.on('data', (chunk: string) => {
+    buffer += chunk
+    if (buffer.length > 1_000_000) {
+      socket.destroy()
+      return
+    }
+    const parts = buffer.split('\n')
+    buffer = parts.pop() ?? ''
+    for (const part of parts) {
+      if (part.trim() === '') continue
+      let message: unknown
+      try {
+        message = JSON.parse(part)
+      } catch {
+        socket.destroy()
+        return
+      }
+      handle(message)
     }
   })
-  // OS scheme flips ride through while the theme preference is `system`.
-  nativeTheme.on('updated', () => { pushAppearance() })
-  applyAppearance()
-  await win.loadFile(fileURLToPath(new URL('../assets/floating.html', import.meta.url)))
-  connect(0)
-})
-
-ipcMain.handle('orb:expand', (event, expanded) => {
-  if (!fromBall(event) || !placement || typeof expanded !== 'boolean') {
-    return { expanded: false, horizontal: 'left', vertical: 'up', docked: undefined, strip: 0 }
-  }
-  return placement.setExpanded(expanded)
-})
-
-/**
- * The page's own geometry sync. Chips are rendered from the page's list while the reserved
- * strip width lives here, so a state message missed across a page load would leave the
- * panel over them. Re-applying the reservation from this side heals that in one round trip.
- */
-ipcMain.handle('orb:sync-strip', (event) => {
-  if (!fromBall(event) || !placement) {
-    return { expanded: false, horizontal: 'left', vertical: 'up', docked: undefined, strip: 0 }
-  }
-  return placement.setStrip(lastAgentItems.length > 0 ? AGENT_STRIP_WIDTH : 0)
-})
-
-// Drag: the renderer only signals. Every position comes from the OS cursor, which
-// shares the DIP space the window bounds use, so no renderer-side coordinate can go stale.
-ipcMain.on('orb:drag-press', (event) => {
-  if (!fromBall(event) || !placement) return
-  placement.press(cursorPoint())
-})
-
-ipcMain.on('orb:drag-begin', (event) => {
-  if (!fromBall(event) || !placement) return
-  placement.beginDrag()
-})
-
-ipcMain.on('orb:drag-move', (event, canDock) => {
-  if (!fromBall(event) || !placement) return
-  placement.dragTo(cursorPoint(), canDock !== false)
-})
-
-ipcMain.handle('orb:drag-end', async (event, canDock) => {
-  if (!fromBall(event) || !placement) return { docked: undefined }
-  const cursor = cursorPoint()
-  const result = await placement.endDrag(cursor, canDock !== false)
-  logDockDiagnostics(cursor, result)
-  persistGeometry()
-  return result
-})
-
-/** Read the geometry file. A missing or damaged file is the same as no saved layout. */
-function readGeometry(path: string): StoredGeometry {
-  try {
-    return parseGeometryStore(readFileSync(path, 'utf8'))
-  } catch {
-    return { ball: null, panel: null }
-  }
+  socket.on('error', () => {
+    // The close handler owns the exit path.
+  })
+  socket.on('close', () => {
+    if (live === socket) live = undefined
+    if (!quitting) app.quit()
+  })
 }
 
-/**
- * The ball origin to open at: the saved one pulled back into the display it belongs to,
- * or the default spot when nothing was saved. A monitor that is no longer attached
- * answers `getDisplayNearestPoint`, so the ball always reappears on screen.
- */
-function restoreOrigin(ball: BallOrigin | null): BallOrigin {
-  if (!ball) return defaultFloatingBallOrigin(screen.getPrimaryDisplay().workArea)
-  const display = screen.getDisplayNearestPoint(ball)
-  return clampedBallOrigin(ball, display.workArea)
-}
-
-/**
- * Remember the ball origin and the panel size. Written on every committed move, resize
- * and release, so a crash costs at most the gesture in flight. A failed write must never
- * take the ball down; it only costs the restore.
- */
-function persistGeometry(): void {
-  if (!placement || geometryPath === '') return
-  try {
-    const text = serializeGeometryStore(placement.ballOrigin(), placement.panelSize())
-    const temporary = `${geometryPath}.tmp`
-    writeFileSync(temporary, text, 'utf8')
-    renameSync(temporary, geometryPath)
-  } catch (error) {
-    console.error(`dsh-orb helper: geometry not saved: ${error instanceof Error ? error.message : String(error)}`)
-  }
-}
-
-function cursorPoint(): { x: number; y: number } {
-  const point = screen.getCursorScreenPoint()
-  return { x: point.x, y: point.y }
-}
-
-ipcMain.handle('orb:unsnap', async (event) => {
-  if (!fromBall(event) || !placement) return { docked: undefined }
-  const result = await placement.unsnap()
-  persistGeometry()
-  return result
-})
-
-/**
- * Resize the panel with the two big buttons. The step runs against the display the
- * window is on, so a preset that does not fit is clamped instead of being refused.
- */
-ipcMain.handle('orb:panel-size', (event, direction) => {
-  if (!fromBall(event) || !placement || !win) return { ok: false }
-  if (direction !== 'smaller' && direction !== 'larger') return { ok: false }
-  const display = screen.getDisplayMatching(win.getBounds())
-  const step = stepPanelSize(placement.panelSize(), display.workArea, direction)
-  if (!step.changed) {
-    return { ok: true, changed: false, width: step.size.width, height: step.size.height }
-  }
-  // The direction can cross the up/down boundary when the panel grows or shrinks. Return
-  // the exact layout the window now has, from the same call that applied it, so the page
-  // flips its classes instead of keeping the old side.
-  const state = placement.setPanelSize(step.size)
-  persistGeometry()
+/** Adapt the Electron window to the state machine without importing Electron into it. */
+function frameWindow(): FrameWindow | undefined {
+  const created = frame
+  if (created === undefined) return undefined
   return {
-    ok: true,
-    changed: true,
-    width: step.size.width,
-    height: step.size.height,
-    state,
+    isDestroyed: () => created.isDestroyed(),
+    setBounds: bounds => created.setBounds(bounds),
+    executeJavaScript: code => created.webContents.executeJavaScript(code),
+    showInactive: () => created.showInactive(),
+    hide: () => created.hide(),
   }
-})
+}
 
-/**
- * Clipboard text for the paste button. The ball window rests unfocused, where the
- * renderer's Clipboard API is refused, so the read happens here. Non-text and an empty
- * clipboard both answer `empty`: Electron exposes no way to tell them apart.
- */
-ipcMain.handle('orb:read-clipboard', (event) => {
-  if (!fromBall(event)) return { ok: false, reason: 'error' }
+function write(message: unknown): void {
+  if (live === undefined || live.destroyed) return
   try {
-    const text = clipboard.readText()
-    if (typeof text !== 'string' || text.trim() === '') return { ok: false, reason: 'empty' }
-    return { ok: true, text }
+    live.write(`${JSON.stringify(message)}\n`)
   } catch {
-    return { ok: false, reason: 'error' }
+    live.destroy()
   }
-})
+}
 
-ipcMain.on('orb:open-main', (event) => {
-  if (!fromBall(event)) return
-  write({ type: 'open-main' })
-})
+function ack(id: unknown): void {
+  if (typeof id === 'string') write({ type: 'overlay-ack', id })
+}
 
-ipcMain.on('orb:open-settings', (event) => {
-  if (!fromBall(event)) return
-  write({ type: 'open-settings' })
-})
+function handle(message: unknown): void {
+  if (typeof message !== 'object' || message === null) return
+  const record = message as { type?: unknown; id?: unknown; active?: unknown; bounds?: unknown }
+  if (record.type === 'overlay-capture') {
+    // The frame is content-protected at rest, so a capture never sees it. The
+    // interval still needs an ack so the host knows the capture may start.
+    ack(record.id)
+    return
+  }
+  if (record.type === 'overlay-input') {
+    // The frame is click-through at all times. Hold the begin ack briefly so
+    // posted HID events cannot land on the overlay before hit-testing settles.
+    if (record.active === true) setTimeout(() => ack(record.id), INPUT_APPLY_MS)
+    else ack(record.id)
+    return
+  }
+  if (record.type === 'observation-frame') {
+    const region = readRect(record.bounds)
+    if (region === undefined) {
+      display?.hide()
+      ack(record.id)
+      return
+    }
+    if (display === undefined) {
+      ack(record.id)
+      return
+    }
+    void display.show(region).then(() => ack(record.id), () => ack(record.id))
+  }
+}
 
-ipcMain.on('orb:prompt', (event, text) => {
-  if (!fromBall(event)) return
-  write({ type: 'prompt', text })
-})
+function toDip(region: OverlayRect): OverlayRect {
+  if (process.platform !== 'win32') return region
+  const dip = screen.screenToDipRect(null, {
+    x: Math.round(region.x),
+    y: Math.round(region.y),
+    width: Math.round(region.width),
+    height: Math.round(region.height),
+  })
+  return { x: dip.x, y: dip.y, width: dip.width, height: dip.height }
+}
 
-ipcMain.on('orb:question-answer', (event, payload) => {
-  if (!fromBall(event)) return
-  if (typeof payload !== 'object' || payload === null) return
-  const record = payload as { id?: unknown; answers?: unknown }
-  write({ type: 'question-answer', id: record.id, answers: record.answers })
-})
+function workAreaOf(point: { readonly x: number; readonly y: number }): OverlayRect {
+  const area = screen.getDisplayNearestPoint({ x: Math.round(point.x), y: Math.round(point.y) }).workArea
+  return { x: area.x, y: area.y, width: area.width, height: area.height }
+}
 
-ipcMain.on('orb:question-cancel', (event, id) => {
-  if (!fromBall(event)) return
-  write({ type: 'question-cancel', id })
-})
+function readRect(value: unknown): OverlayRect | undefined {
+  if (typeof value !== 'object' || value === null) return undefined
+  const record = value as { x?: unknown; y?: unknown; width?: unknown; height?: unknown }
+  if (typeof record.x !== 'number' || typeof record.y !== 'number'
+    || typeof record.width !== 'number' || typeof record.height !== 'number') {
+    return undefined
+  }
+  if (![record.x, record.y, record.width, record.height].every(Number.isFinite)) return undefined
+  if (record.width < 1 || record.height < 1) return undefined
+  return { x: record.x, y: record.y, width: record.width, height: record.height }
+}
 
-ipcMain.on('orb:history', (event) => {
-  if (!fromBall(event)) return
-  write({ type: 'history' })
-})
+async function publishChromeWindows(): Promise<void> {
+  if (frame === undefined || frame.isDestroyed() || !frameReady) return
+  const ids = collectChromeWindowIds([frame], process.platform)
+  if (ids.length > 0) write({ type: 'chrome-windows', ids })
+}
 
-ipcMain.on('orb:open', (event, sessionId) => {
-  if (!fromBall(event)) return
-  if (typeof sessionId === 'string') write({ type: 'open', sessionId })
-})
-
-ipcMain.on('orb:agent-open', (event, sessionId) => {
-  if (!fromBall(event)) return
-  if (typeof sessionId === 'string') write({ type: 'agent-open', sessionId })
-})
-
-ipcMain.on('orb:agent-dismiss', (event, sessionId) => {
-  if (!fromBall(event)) return
-  if (typeof sessionId === 'string') write({ type: 'agent-dismiss', sessionId })
-})
-
-ipcMain.on('orb:new', (event) => {
-  if (!fromBall(event)) return
-  write({ type: 'new' })
-})
-
-ipcMain.on('orb:permission', (event, preset) => {
-  if (!fromBall(event)) return
-  if (typeof preset === 'string') write({ type: 'permission', preset })
-})
-
-ipcMain.on('orb:stop', (event) => {
-  if (!fromBall(event)) return
-  write({ type: 'stop' })
-})
-
-// Renderer clipboard APIs need a focused document; the ball rests unfocused,
-// so writes go through the main process, which has no such gate.
-ipcMain.on('orb:copy', (event, text) => {
-  if (!fromBall(event)) return
-  if (typeof text !== 'string' || text.length > 1_000_000) return
-  clipboard.writeText(text)
-})
-
-ipcMain.handle('orb:menu', async (event) => {
-  if (!fromBall(event) || !win) return
-  write({ type: 'menu' })
-  await showMenu(win)
-})
-
-ipcMain.on('orb:open-external', (event, url) => {
-  if (!fromBall(event)) return
-  if (typeof url !== 'string' || !/^https?:\/\//i.test(url) || url.length > 4000) return
-  void shell.openExternal(url)
-})
-
-ipcMain.handle('orb:tcc-status', (event) => {
-  if (!fromBall(event)) return tccUnavailable()
-  return askTcc({ type: 'tcc' })
-})
-
-ipcMain.handle('orb:tcc-open', (event, right) => {
-  if (!fromBall(event)) return tccUnavailable()
-  if (right !== 'screen' && right !== 'accessibility') return tccUnavailable()
-  return askTcc({ type: 'tcc-open', right })
-})
-
-function openWindow(origin: BallOrigin): BrowserWindow {
-  const bounds = windowBoundsForBall(origin)
+function openFrame(): BrowserWindow {
   const created = new BrowserWindow({
-    title: 'dsh-orb',
-    x: bounds.x,
-    y: bounds.y,
-    width: bounds.width,
-    height: bounds.height,
+    width: 32,
+    height: 32,
     frame: false,
     transparent: true,
     alwaysOnTop: true,
     resizable: false,
-    movable: true,
+    movable: false,
     minimizable: false,
     maximizable: false,
     fullscreenable: false,
     skipTaskbar: true,
-    hasShadow: false,
-    focusable: true,
+    focusable: false,
     show: false,
+    hasShadow: false,
     backgroundColor: '#00000000',
     roundedCorners: false,
-    // The default thick frame is a resize border. On a scaled display its DIP
-    // inset does not match the bounds we set, so the ball stops short of the edge.
-    ...process.platform === 'win32' ? { thickFrame: false } : {},
-    ...process.platform === 'darwin' ? { type: 'panel' } : {},
+    ...process.platform === 'darwin' ? { type: 'panel' as const } : {},
     webPreferences: {
-      preload: fileURLToPath(new URL('../preload.cjs', import.meta.url)),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
     },
   })
-  // The ball rests captureable; overlays.ts syncCloak lifts it out of captures
-  // for the duration of each Computer Use capture or HID interval.
-  denyWindowPermissions(created)
-  created.setAlwaysOnTop(true, 'screen-saver')
+  created.setAlwaysOnTop(true, 'floating')
   if (process.platform === 'darwin') {
     created.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true })
   }
+  // The ribbon must be visible to the user but never pollute a model capture.
+  // Content protection covers Windows (WDA_EXCLUDEFROMCAPTURE) and macOS
+  // (NSWindowSharingNone); capture-exclusion ids remain a second layer on
+  // Windows. `DSH_ORB_FRAME_CAPTUREABLE=1` is a development-only switch used
+  // to record the drawn ribbon; production always keeps protection on.
+  if (process.env.DSH_ORB_FRAME_CAPTUREABLE !== '1') created.setContentProtection(true)
+  created.setIgnoreMouseEvents(true, { forward: true })
   created.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
-  created.webContents.on('context-menu', (event, params) => {
-    // Editable text and an active selection get the native menu (Copy/Paste);
-    // bare right-click still opens the ball's own menu.
-    if (params?.isEditable || params?.hasSelection) return
-    event.preventDefault()
-    write({ type: 'menu' })
-    setTimeout(() => { void showMenu(created) }, 30)
-  })
   created.webContents.on('will-navigate', (event) => {
     event.preventDefault()
   })
-  created.on('closed', () => {
-    if (!quitting) app.quit()
-  })
-  created.once('ready-to-show', () => {
-    created.showInactive()
-    const shown = created.getBounds()
-    console.error(`dsh-orb helper: ball ${shown.x},${shown.y} ${shown.width}x${shown.height}`)
-  })
   return created
-}
-
-function connect(attempt: number): void {
-  if (quitting) return
-  const colon = socketAddress.lastIndexOf(':')
-  const host = socketAddress.slice(0, colon)
-  const port = Number(socketAddress.slice(colon + 1))
-  const socket = createConnection({ host, port })
-  socket.setEncoding('utf8')
-  let opened = false
-  socket.on('connect', () => {
-    opened = true
-    live = socket
-    buffer = ''
-    socket.write(`${JSON.stringify({ type: 'hello', token, pid: process.pid })}\n`)
-    // The host's observation walk must skip the ball itself, or a click on the ball makes
-    // it the window the agent believes the user is working in.
-    const ids = chromeWindowIds()
-    if (ids.length > 0) write({ type: 'chrome-windows', ids })
-  })
-  socket.on('data', (chunk: string) => {
-    buffer += chunk
-    const parts = buffer.split('\n')
-    buffer = parts.pop() ?? ''
-    for (const part of parts) {
-      if (!part.trim()) continue
-      let message: unknown
-      try {
-        message = JSON.parse(part)
-      } catch {
-        continue
-      }
-      deliver(message)
-    }
-  })
-  socket.on('error', () => {
-    // close follows and decides whether to retry.
-  })
-  socket.on('close', () => {
-    if (live === socket) live = undefined
-    if (quitting) return
-    if (opened) {
-      app.quit()
-      return
-    }
-    if (attempt >= 30) {
-      console.error('dsh-orb helper: host socket did not open')
-      app.exit(1)
-      return
-    }
-    setTimeout(() => connect(attempt + 1), 300)
-  })
-}
-
-function deliver(message: unknown): void {
-  if (overlays?.deliver(message)) return
-  if (typeof message !== 'object' || message === null || !win) return
-  const record = message as { type?: unknown }
-  if (record.type === 'session') {
-    win.webContents.send('orb:session', (record as { sessionId?: unknown }).sessionId)
-    return
-  }
-  if (record.type === 'block') {
-    win.webContents.send('orb:block', message)
-    return
-  }
-  if (record.type === 'block-drop') {
-    win.webContents.send('orb:block-drop', (record as { key?: unknown }).key)
-    return
-  }
-  if (record.type === 'turn') {
-    win.webContents.send('orb:turn', message)
-    return
-  }
-  if (record.type === 'status') {
-    win.webContents.send('orb:status', (record as { text?: unknown }).text)
-    return
-  }
-  if (record.type === 'update') {
-    const text = updateStatusText(record as { state?: unknown; version?: unknown; reason?: unknown }, menuZh())
-    if (text !== '') win.webContents.send('orb:status', text)
-    return
-  }
-  if (record.type === 'question') {
-    win.webContents.send('orb:question', message)
-    return
-  }
-  if (record.type === 'question-clear') {
-    win.webContents.send('orb:question-clear', (record as { id?: unknown }).id)
-    return
-  }
-  if (record.type === 'question-error') {
-    win.webContents.send('orb:question-error', message)
-    return
-  }
-  if (record.type === 'permission') {
-    win.webContents.send('orb:permission', (record as { preset?: unknown }).preset)
-    return
-  }
-  if (record.type === 'history') {
-    win.webContents.send('orb:history', (record as { items?: unknown }).items)
-    return
-  }
-  if (record.type === 'agents') {
-    const items = (record as { items?: unknown }).items
-    lastAgentItems = Array.isArray(items) ? items : []
-    win.webContents.send('orb:agents', lastAgentItems)
-    applyStrip(lastAgentItems.length > 0)
-    return
-  }
-  if (record.type === 'reset') {
-    win.webContents.send('orb:reset')
-    return
-  }
-  if (record.type === 'chrome') {
-    chrome = readChrome(record)
-    return
-  }
-  if (record.type === 'appearance') {
-    const next = readAppearanceMessage(message)
-    if (next.theme !== undefined) appearance.theme = next.theme
-    if (next.locale !== undefined) appearance.locale = next.locale
-    applyAppearance()
-    return
-  }
-  if (record.type === 'avatar') {
-    void loadAvatar(readAvatarChoice(record as Record<string, unknown>))
-    return
-  }
-  if (record.type === 'tcc') {
-    const wait = tccWait
-    tccWait = undefined
-    wait?.((record as { status?: unknown }).status)
-  }
-}
-
-/** Ball plus overlays: the windows the host must skip when it picks an observation window. */
-function chromeWindowIds(): number[] {
-  return collectChromeWindowIds([win, ...(overlays?.chromeWindows() ?? [])], process.platform)
-}
-
-/**
- * The bookmark strip lives beside the panel inside one transparent window, so
- * the window widens while bookmarks exist and shrinks back when they clear.
- * The renderer learns the applied geometry through `orb:expand-state`.
- */
-function applyStrip(present: boolean): void {
-  if (!placement) return
-  const state = placement.setStrip(present ? AGENT_STRIP_WIDTH : 0)
-  if (win && !win.isDestroyed()) win.webContents.send('orb:expand-state', state)
-}
-
-function fromBall(event: unknown): boolean {
-  if (!win || win.isDestroyed()) return false
-  return (event as { sender?: BrowserWindow['webContents'] }).sender === win.webContents
-}
-
-function tccUnavailable(): { applicable: false; appName: string; screen: 'granted'; accessibility: 'granted' } {
-  return { applicable: false, appName: '', screen: 'granted', accessibility: 'granted' }
-}
-
-function askTcc(message: unknown): Promise<unknown> {
-  const previous = tccWait
-  tccWait = undefined
-  previous?.(tccUnavailable())
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      if (tccWait !== finish) return
-      tccWait = undefined
-      resolve(tccUnavailable())
-    }, 3000)
-    const finish = (status: unknown) => {
-      clearTimeout(timer)
-      resolve(status ?? tccUnavailable())
-    }
-    tccWait = finish
-    write(message)
-  })
-}
-
-function write(message: unknown): void {
-  if (!live) return
-  live.write(`${JSON.stringify(message)}\n`)
-}
-
-/**
- * Docking diagnostics, off unless `DSH_ORB_DOCK_DEBUG` is set. One stderr line per
- * drag release: the cursor the drag ended on, the window bounds the OS applied,
- * every display with its scaleFactor, and the decision. A machine that will not
- * dock reports here, which is the only way to diagnose a display/DPI layout we
- * cannot reproduce.
- */
-function logDockDiagnostics(cursor: { x: number; y: number }, result: { docked?: 'left' | 'right' }): void {
-  if (process.env.DSH_ORB_DOCK_DEBUG !== '1') return
-  if (!win || win.isDestroyed()) return
-  const displays = screen.getAllDisplays().map((display) => ({
-    bounds: display.bounds,
-    workArea: display.workArea,
-    scaleFactor: display.scaleFactor,
-  }))
-  console.error(`[orb-dock] ${JSON.stringify({
-    electron: process.versions.electron,
-    cursor,
-    window: win.getBounds(),
-    displays,
-    docked: result.docked ?? null,
-  })}`)
-}
-
-function zhLocale(): boolean {
-  const locale = app.getLocale?.() ?? process.env.LANG ?? ''
-  return locale.toLowerCase().startsWith('zh')
-}
-
-/** Appearance seed from the host: the preferences as of helper launch. */
-function readAppearanceEnv(): Appearance {
-  const raw = process.env.DSH_ORB_APPEARANCE
-  if (typeof raw !== 'string' || raw.length > 200) return {}
-  try {
-    return readAppearanceMessage(JSON.parse(raw))
-  } catch {
-    return {}
-  }
-}
-
-function themeSourceOr(value: unknown, fallback: ThemeSource | undefined): ThemeSource | undefined {
-  return value === 'light' || value === 'dark' || value === 'system' ? value : fallback
-}
-
-/** Accept only well-formed preference fields; anything else keeps the current value. */
-function readAppearanceMessage(value: unknown): Appearance {
-  if (typeof value !== 'object' || value === null) return {}
-  const record = value as { theme?: unknown; locale?: unknown }
-  const theme = themeSourceOr(record.theme, undefined)
-  return {
-    ...(theme === undefined ? {} : { theme }),
-    ...(typeof record.locale === 'string' && record.locale.length > 0 && record.locale.length <= 35
-      ? { locale: record.locale }
-      : {}),
-  }
-}
-
-/**
- * The UI language the ball mirrors: an explicit Host locale that names one of
- * the shipped languages wins, otherwise follow the system like the web client
- * falls back to its browser detection.
- */
-function uiLanguage(): 'zh' | 'en' {
-  const preference = typeof appearance.locale === 'string' ? appearance.locale.toLowerCase() : ''
-  if (preference.startsWith('zh')) return 'zh'
-  if (preference.startsWith('en')) return 'en'
-  return zhLocale() ? 'zh' : 'en'
-}
-
-/** Menu and dialog copy follow the mirrored language, not the raw system locale. */
-function menuZh(): boolean {
-  return uiLanguage() === 'zh'
-}
-
-/** Point the helper's theme at the stored preference and push the resolved state. */
-function applyAppearance(): void {
-  nativeTheme.themeSource = appearance.theme ?? 'system'
-  pushAppearance()
-}
-
-function pushAppearance(): void {
-  const payload = { dark: nativeTheme.shouldUseDarkColors, locale: uiLanguage() }
-  if (win && !win.isDestroyed()) win.webContents.send('orb:appearance', payload)
-  overlays?.appearance(payload)
-}
-
-function readChrome(value: unknown): ChromeState {
-  const record = value as {
-    overlay?: MenuSelection
-    background?: MenuSelection
-    millifractionEnabled?: unknown
-    openMain?: unknown
-    update?: unknown
-    catalog?: MenuCatalog
-  }
-  return {
-    overlay: selectionOr(record.overlay, chrome.overlay),
-    background: selectionOr(record.background, chrome.background),
-    millifractionEnabled: record.millifractionEnabled === true,
-    openMain: record.openMain === true,
-    update: typeof record.update === 'string' && record.update !== '' ? record.update : null,
-    catalog: record.catalog ?? { groups: [] },
-  }
-}
-
-function selectionOr(value: MenuSelection | undefined, fallback: MenuSelection): MenuSelection {
-  if (!value || typeof value.provider !== 'string' || typeof value.model !== 'string') return fallback
-  return value
-}
-
-async function showMenu(window: BrowserWindow): Promise<void> {
-  const template = contextMenuTemplate(chrome, menuZh(), {
-    openMain: () => { write({ type: 'open-main' }) },
-    openSettings: () => { write({ type: 'open-settings' }) },
-    setOverlay: (selection) => { write({ type: 'set-overlay', selection }) },
-    setBackground: (selection) => { write({ type: 'set-background', selection }) },
-    setMillifraction: (enabled) => { void confirmMillifraction(window, enabled) },
-    update: () => { write({ type: 'update' }) },
-    disable: () => { write({ type: 'disable' }) },
-  })
-  Menu.buildFromTemplate(template).popup({ window })
-}
-
-/** One line for the ball's status area: the update runs in the host, the ball only narrates it. */
-function updateStatusText(message: { state?: unknown; version?: unknown; reason?: unknown }, zh: boolean): string {
-  const version = typeof message.version === 'string' ? message.version : ''
-  if (message.state === 'available') {
-    return zh ? `发现新版本 ${version}，右键球可更新` : `Version ${version} is available — right-click the ball to update`
-  }
-  if (message.state === 'starting') {
-    return zh ? `正在更新到 ${version}…` : `Updating to ${version}…`
-  }
-  if (message.state === 'done') {
-    return zh ? `已更新到 ${version}，重启 DeepSeek Harness 后生效` : `Updated to ${version} — restart DeepSeek Harness to apply it`
-  }
-  if (message.state === 'deferred') {
-    return zh ? `${version} 将在退出 DeepSeek Harness 后自动安装，请退出后再重新打开` : `${version} installs once DeepSeek Harness quits — quit it, then reopen it`
-  }
-  if (message.state === 'failed') {
-    return zh ? `更新失败：${updateFailureText(message.reason, true)}` : `Update failed: ${updateFailureText(message.reason, false)}`
-  }
-  return ''
-}
-
-function updateFailureText(reason: unknown, zh: boolean): string {
-  if (reason === 'build-blocked') {
-    return zh ? '安装脚本未获授权，请在设置页允许后重试' : 'install scripts need approval — allow them in settings and retry'
-  }
-  if (reason === 'incompatible-version') {
-    return zh ? '当前 Harness 版本与新版不兼容' : 'the new version is incompatible with this Harness build'
-  }
-  if (reason === 'already-installed') {
-    return zh
-      ? '当前 Harness 不允许覆盖已安装的插件，请在插件页移除后再安装新版本'
-      : 'this Harness build refuses to install over a plugin that is already installed — remove it on the Plugins page, then install the new version'
-  }
-  if (typeof reason === 'string' && reason !== '') return reason
-  return zh ? '未知错误' : 'unknown error'
-}
-
-async function confirmMillifraction(window: BrowserWindow, enabled: boolean): Promise<void> {
-  if (enabled === chrome.millifractionEnabled) return
-  const zh = menuZh()
-  const { response } = await dialog.showMessageBox(window, {
-    type: 'question',
-    message: zh ? '新编码只在新对话中生效。' : 'The new encoding takes effect in a new conversation.',
-    detail: zh
-      ? '当前对话不变，仍可从历史记录打开。取消不写入、不新建。'
-      : 'The current conversation stays unchanged and remains in History. Cancel leaves the default and this chat as they are.',
-    buttons: zh ? ['取消', '新建对话'] : ['Cancel', 'Create new conversation'],
-    defaultId: 1,
-    cancelId: 0,
-    noLink: true,
-  })
-  if (response !== 1) return
-  write({ type: 'set-millifraction', enabled })
-}
-
-async function loadAvatar(choice: AvatarChoice): Promise<void> {
-  const tokenId = ++avatarToken
-  if (!win) return
-  if (choice.kind === 'preset') {
-    // A shipped GIF: the page loads the file itself, no socket payload involved.
-    win.webContents.send('orb:avatar', choice.src)
-    return
-  }
-  if (choice.kind === 'default') {
-    win.webContents.send('orb:avatar', '')
-    return
-  }
-  const image = await fetchAvatar(choice.version)
-  if (tokenId !== avatarToken || !win || !image) return
-  win.webContents.send('orb:avatar', `data:${image.mime};base64,${image.body.toString('base64')}`)
-}
-
-function fetchAvatar(version: number): Promise<{ mime: string; body: Buffer } | undefined> {
-  const port = Number(webPort)
-  if (!Number.isInteger(port) || port <= 0 || !token) return Promise.resolve(undefined)
-  return new Promise((resolve) => {
-    const req = httpRequest({
-      hostname: '127.0.0.1',
-      port,
-      path: `/.dsh-orb/avatar?v=${Math.trunc(version)}`,
-      method: 'GET',
-      headers: { 'x-dsh-orb-helper': token },
-    }, (res) => {
-      const chunks: Buffer[] = []
-      let size = 0
-      res.on('data', (chunk: Buffer) => {
-        size += chunk.length
-        if (size > MAX_AVATAR_RESPONSE_BYTES) {
-          req.destroy()
-          resolve(undefined)
-          return
-        }
-        chunks.push(chunk)
-      })
-      res.on('end', () => {
-        if (res.statusCode !== 200) {
-          resolve(undefined)
-          return
-        }
-        const mime = typeof res.headers['content-type'] === 'string' ? res.headers['content-type'].split(';')[0] : 'image/gif'
-        resolve({ mime: mime ?? 'image/gif', body: Buffer.concat(chunks) })
-      })
-    })
-    req.setTimeout(5000, () => {
-      req.destroy()
-      resolve(undefined)
-    })
-    req.on('error', () => resolve(undefined))
-    req.end()
-  })
 }

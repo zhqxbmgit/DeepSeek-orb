@@ -29,7 +29,7 @@ kind: "package-reference"
 
 ### 何时选择
 
-当视觉模型需要驱动 bash 无法到达的可见 GUI，并且你希望工具目录仅含 Shell、网页检索与抓取、十三个 GUI 工具、`code_agent`、`code_agent_status`、`code_agent_stop` 和 `ask_user_question` 时，选择它。普通编码会话、纯文本路由，以及不得授予屏幕录制、辅助功能与访达自动化权限的宿主，都不要选择。它不是 Skill，不是能力 seam，也不属于 `dsh-base`。macOS 与 Windows 上的 Desktop 也会把该 overlay 作为签名 runtime extra 挂上，以便悬浮球锁死 Computer Use 会话。
+当视觉模型需要驱动 bash 无法到达的可见 GUI，并且你希望工具目录仅含 Shell、网页检索与抓取、十三个 GUI 工具、`code_agent`、`code_agent_status`、`code_agent_stop` 和 `ask_user_question` 时，选择它。普通编码会话、纯文本路由，以及不得授予屏幕录制、辅助功能与访达自动化权限的宿主，都不要选择。它不是 Skill，不是能力 seam，也不属于 `dsh-base`。macOS 与 Windows 上的 Desktop 也会把本包挂到主窗口 Computer Use preset 和观察框彩带辅助进程后面。
 
 ### 最小配置
 
@@ -87,7 +87,7 @@ pnpm dsh web --patch packages/experimental/tool-computer-use/cordis.source.patch
 
 测试通过 `applyComputerUse(ctx, backend, config)` 注入假桌面，而不是 Config 上的 `driver` 钩子。
 
-在 Desktop 上，省略 `session_id` 时，若 Host 发布了悬浮球「后台 Agent 设置」中的选择，新建 `code_agent` 会话会使用该选择。传入 `session_id` 续写时不改已有会话的模型。省略 `cwd` 会在这条 Computer Use 会话的 cwd 下新建唯一子目录。没有该 Host 服务的 Web / headless 组合仍继承部署的 Agent 默认模型。每条入队任务都会附上一段模型改不掉的职能说明：后台 agent 不看屏幕；用户要文件时做出文件并回复路径，否则用几句话回答后停下，不写报告。完成通知只引用模型写的那段任务。
+在 Desktop 上，省略 `session_id` 时，若 Host 发布了后台 Agent 选择服务，新建 `code_agent` 会话会使用该选择。传入 `session_id` 续写时不改已有会话的模型。省略 `cwd` 会在这条 Computer Use 会话的 cwd 下新建唯一子目录。没有该 Host 服务的 Web / headless 组合仍继承部署的 Agent 默认模型。每条入队任务都会附上一段模型改不掉的职能说明：后台 agent 不看屏幕；用户要文件时做出文件并回复路径，否则用几句话回答后停下，不写报告。完成通知只引用模型写的那段任务。
 
 -----
 
@@ -103,7 +103,7 @@ pnpm dsh web --patch packages/experimental/tool-computer-use/cordis.source.patch
 
 这个实验包有意保持为单个包。现有 agent-loop 已经会把包含图片的工具结果送入下一次模型请求，因此 Computer Use 不增加 observe 工具，也不改变 loop 语义。接地文案是 `systemPrompt.section`，不是 Skill。第二个后端才值得把 Service Definition 与 Provider 拆开；本轮把 macOS 捕获/输入与工具放在同一包中。
 
-首帧附件使用 `agent/pre-step`：监听器始终 `await next()`，然后在已领取批次包含 `source.kind === 'user'` 消息且路由声明图片输入时，追加 `form: 'notice'` 的插件 `user` 通知，除非该用户文本以 `Desktop selection. Answer in this chat only. Do not call GUI tools or code_agent.` 开头。`agent.inject()` 只会落在下一步。
+首帧附件使用 `agent/pre-step`：监听器始终 `await next()`，然后在已领取批次包含 `source.kind === 'user'` 消息且路由声明图片输入时，追加 `form: 'notice'` 的插件 `user` 通知。`agent.inject()` 只会落在下一步。
 
 Desktop 上新建 `code_agent` 会在 `session.create` 之后、`session.prompt` 之前读取可选的 `ctx.get('orbCodeAgentModel')`，并传入 `saveAsDefault: false`。按 `session_id` 续写不会。空白 overlay Computer Use 新建会在 `agent/created` 读取可选的 `ctx.get('orbCoordinateMode')` 并追加 `'computer-use/coordinate-mode'`；已有 `session/end-seed` 或已有编码事件的日志不动。Headless/Web 不提供该服务，保持千分比。本包不导入 Desktop Host。
 
@@ -114,14 +114,14 @@ Desktop 上新建 `code_agent` 会在 `session.create` 之后、`session.prompt`
 | [`src/index.ts`](src/index.ts) | 插件入口：宿主平台后端上的 `name` / `inject` / `Config` / `apply` |
 | [`src/preset-root.ts`](src/preset-root.ts) | 仅 overlay 使用的插件：发布额外的 agent-presets 根目录 |
 | [`src/plugin.ts`](src/plugin.ts) | 共享的 `applyComputerUse`：策略、十三个 GUI 工具、首帧 pre-step |
-| [`src/selection-turn.ts`](src/selection-turn.ts) | 识别 Desktop 划词用户轮次，从而省略首帧捕获 |
+| [`src/project-context.ts`](src/project-context.ts) | `project_context`：报告真实 cwd、项目根、实际保留的 loader 链、逐条 cwd/项目根归属、哈希、遗漏和有界交接文件 |
 | [`src/observe.ts`](src/observe.ts) | 最前窗口捕获、跳过 overlay 的前台检查，以及面向模型的信封 |
 | [`src/raster.ts`](src/raster.ts) | PNG IHDR 与 JPEG SOF 像素尺寸，用于可持久化的 `screenshot` 栅格 |
 | [`src/code-agent.ts`](src/code-agent.ts) | 仅 Computer Use 的 `code_agent`、`code_agent_status` 与 `code_agent_stop`：调用方登记表、子目录 cwd、`session.create`、Desktop 新建时可选 `selectModel`、`session.prompt` |
 | [`src/code-agent-completion.ts`](src/code-agent-completion.ts) | Code 会话与 Computer Use 调用方都空闲后投递的插件通知；停止时可中止 |
 | [`src/code-agent-unattended.ts`](src/code-agent-unattended.ts) | 在活的 Code agent 上前置自动允许 `approval/request` 与自动应答 `user-questions/request` |
 | [`src/macos.ts`](src/macos.ts) | Darwin 用 `screencapture -R` 取前台应用窗口并集、并裁到拥有它的那块显示器（区域参数由该显示器按其像素倍率读取，副屏窗口不会再返回主屏像素），或在设置了 overlay 窗口 id 时走排除 overlay 的 ScreenCaptureKit `--region=`（Desktop IPC 进 Electron，CLI 派生 helper）；click、scroll、hotkey、长按与拖拽走 JXA `CGEvent`；`input_text` 通过 NSPasteboard 粘贴；`list_apps` / `open_app` 走 NSWorkspace；`open_in_browser` / `open_in_finder` 走 `/usr/bin/open`；`inspectForeground` 绑定 `CGWindowListCopyWindowInfo` 再 unwrap（跳过 overlay id）加 Finder AppleScript |
-| [`src/windows.ts`](src/windows.ts) | Win32 用 GDI 把选中窗口并集截成 PNG，坐标是每监视器物理像素；click、scroll、hotkey、长按与拖拽走 `SendInput`；`input_text` 用 Ctrl+V 粘贴，并在粘贴发出后恢复保存下来的各种剪贴板格式；`open_in_finder` 打开资源管理器；提权的目标窗口拒绝输入 |
+| [`src/windows.ts`](src/windows.ts) | Win32 用 GDI 把选中窗口并集截成 PNG，坐标是每监视器物理像素；click、scroll、hotkey、长按与拖拽走 `SendInput`；`input_text` 直接插入 Unicode，正文换行用 Shift+Enter，Tab 用字面 Unicode（不是 VK_TAB），其它控制字符在点击前拒绝；`open_in_finder` 打开资源管理器；提权的目标窗口拒绝输入 |
 | [`src/windows-foreground.ts`](src/windows-foreground.ts) | 纯 z-order 选择：跳过 overlay HWND、任务栏和桌面；合并同一监视器上的菜单与有 owner 的弹出窗口 |
 | [`src/observation-limits.ts`](src/observation-limits.ts) | 共用的最小窗口边长和瞬时窗口外扩，macOS 上是 point，Windows 上是物理像素 |
 | [`src/macos-sck-capture.swift`](src/macos-sck-capture.swift) | Darwin helper 与进程内库：窗口捕获或排除 overlay 后的区域裁切，仍省略 overlay CGWindowID；CLI 先在主 actor 启动 `NSApplication`；库入口不改 activation policy |
@@ -199,7 +199,7 @@ Call code_agent_status when the user asks how many background tasks there are, w
 
 When a plugin notice reports that a Code agent session finished, decide again. Do remaining GUI that the result makes possible. If another stretch of file search or file production remains, call code_agent with that session_id. Then tell the user the short conclusion. Do not recite a long report.
 
-When a user message starts with "Desktop selection. Answer in this chat only. Do not call GUI tools or code_agent.", answer in this chat only. Do not call GUI tools, code_agent, or screenshot on that turn.
+
 ```
 
 ##### Windows 未聚焦窗口
@@ -239,13 +239,13 @@ Keyboard focus is on another window. hotkey brings this window forward first; cl
 - **macOS 与 Windows** — 捕获与 HID 输入在 Darwin 和 Win32 上运行；Linux 在执行时抛错。
 - **屏幕录制、辅助功能与自动化 TCC** — 捕获需要屏幕录制；点击、输入、滚动、热键、长按与拖拽需要辅助功能；Finder 当前文件夹查询需要访达的自动化权限。插件不会提示授予这些权限。Desktop overlay 会在 overlay `session/prompt` 前盖住屏幕录制与辅助功能；访达自动化仍在第一次使用访达时弹出。执行时缺权限仍会点名对应 TCC。Desktop 排除 overlay 的捕获使用 Electron 进程里 DeepSeek Orb 的屏幕录制授权；CLI 仍派生 `macos-sck-capture`。
 - **没有逐次点击批准** — 安装或 patch 插件就是同意门槛；视觉循环不能在每个动作上询问。
-- **宿主 chrome 不是最前窗口时不会进图** — Web 窗口只在它是最前窗口时出现。Desktop 主窗口在 overlay 跳过后仍可被截到。macOS overlay 与观察框彩带由 ScreenCaptureKit 的 exclude id 校验从 Computer Use 截图中省略（display exclude 加裁切），overlay 在 HID 突发、`open_app` 及其 recapture 期间通过带确认的 overlay-guard IPC 点击穿透。Windows 在前台选择里跳过这些 overlay HWND，并在捕获区间以及包含 recapture 的 HID 区间设置显示亲和性。前台检查与 `listScreens` 都跳过这些 overlay 窗口 id，因此主窗口可以出现在 `<frontmost_app>` 里。
-- **输入会保存并恢复整个剪贴板** — `input_text` 在 macOS 上通过 Cmd+V 粘贴，在 Windows 上通过 Ctrl+V 粘贴，然后把保存下来的每种格式都放回去，用户复制的图片或文件列表不会因为这次粘贴消失。Windows 会在 Ctrl+V 之后等待再做这次恢复，快照最多取 16 MB 的格式（纯文本优先），并在什么都放不回去时打日志。`screenshot` 会用捕获的图片替换剪贴板，不恢复先前内容。
+- **宿主 chrome 不是最前窗口时不会进图** — Web 窗口只在它是最前窗口时出现。Desktop 主窗口在 overlay 跳过后仍可被截到。观察框彩带由 ScreenCaptureKit 的 exclude id 校验从 Computer Use 截图中省略（display exclude 加裁切），并在 HID 突发、`open_app` 及其 recapture 期间通过带确认的 overlay-guard IPC 点击穿透。Windows 上彩带在平时就靠内容保护不进截图，前台选择也跳过它的 HWND。前台检查与 `listScreens` 都跳过这个 overlay 窗口 id，因此主窗口可以出现在 `<frontmost_app>` 里。
+- **文本插入语义** — `input_text` 只插入文本；只有 `submit: true` 才按普通 Enter。Windows 上正文换行用 Shift+Enter 换行和弦，而不是可能提交聊天表单的裸 Enter；Tab 用字面 Unicode 发送，绝不是 VK_TAB，后续文本不会被移到别的控件。其它 C0 控制字符在点击前拒绝。宿主没有直接 Unicode 路径时，macOS 粘贴路径与 Windows 剪贴板回退会保存并恢复格式；`screenshot` 则有意用捕获图片替换剪贴板。
 - **Retina 与附件尺寸** — backing scale 与请求栅格可能和捕获栅格不同；千分比会话对可见截图使用 0–1000 比例坐标。Overlay 像素会话按 Computer Use 信封上该次观察的附件 WxH 相除。
 - **固定等待** — 动作后延迟是 inspect 与截取像素之前的 `postActionWaitMs`；没有像素差 stall。
 - **没有套索或 `manage_files`** — GUI 覆盖是 click、type、scroll、hotkey、wait、long_wait、screenshot、长按、拖拽、open-in-browser、open-in-finder、list-apps 与 open-app。切换应用用 `open_app`，不要去点 Dock。后台文档与代码走 `code_agent`。
-- **`code_agent` 通知需要活的 Agent** — execute 仍在入队接受后返回。找不到活的 Code agent、Computer Use 调用方已销毁、或 Code 会话再也不回到空闲，都会丢掉通知。`code_agent_stop` 会中止该区间的监视。后台 Code agent 自动允许批准并自动应答向用户提问；Computer Use 自己仍在球上显示提问。策略拦不住仍然调用 `wait` 或 `long_wait` 的模型。
-- **桌面 overlay** — macOS 与 Windows 会创建悬浮球。Linux 不会。Windows 在捕获和 HID 期间用显示亲和性把球排除出截图，前台选择也会跳过球的 HWND。未提权进程不能点击提权窗口。实验包是签名 runtime extra，不是 Desktop Host 的 npm 依赖。
+- **`code_agent` 通知需要活的 Agent** — execute 仍在入队接受后返回。找不到活的 Code agent、Computer Use 调用方已销毁、或 Code 会话再也不回到空闲，都会丢掉通知。`code_agent_stop` 会中止该区间的监视。后台 Code agent 自动允许批准并自动应答向用户提问；主窗口 Computer Use 对话仍会显示提问。策略拦不住仍然调用 `wait` 或 `long_wait` 的模型。
+- **观察框彩带** — macOS 与 Windows 通过 Host 的彩带辅助进程绘制最小点击穿透边框。Linux 没有 GUI 后端和彩带。Windows 上彩带靠内容保护不进截图，前台选择也跳过它的 HWND。未提权进程不能点击提权窗口。实验包不是 Desktop Host 的 npm 依赖。
 - **Windows 键盘焦点** — 前台 HWND 被跳过时，`<frontmost_app>` 命名下一个可操作窗口，观察加上 `<focus_note>`。`hotkey` 在 `SendInput` 之前用 Alt 加 `SetForegroundWindow` 把该窗口带到前台，并先确认这个句柄仍属于本次会话观察到的应用（Windows 会回收 HWND）、且该窗口未提权。句柄已经换了应用时抛 `computer-use: the <app> window this session observed is gone; click inside the window, then retry hotkey`；窗口只是没能成为前台时抛 `computer-use: keyboard focus could not be moved to <app>; click inside the window, then retry hotkey`。两种情况都不发送按键。`input_text` 靠点击聚焦，不走这次恢复。
 - **实验性原型，不提供稳定性承诺** — 本包为私有；schema 与后端可以自由变更。
 

@@ -68,6 +68,7 @@ describe('computer-use overlay and extra root', () => {
     expect(source).toContain('id: preset-computer-use')
     expect(source).toContain('id: computer-use')
     expect(source).toContain('name: \'./src/index.ts\'')
+    expect(source).toContain('@deepseek-ai/dsh-agent-instructions')
     expect(source).not.toContain('computer-use-preset-root')
 
     const built = await readFile(BUILT_OVERLAY, 'utf8')
@@ -75,6 +76,8 @@ describe('computer-use overlay and extra root', () => {
     expect(built).toContain('name: \'@deepseek-ai/dsh-agent-preset\'')
     expect(built).toContain('name: \'dsh-orb/computer-use\'')
     expect(built).toContain('name: \'dsh-orb/computer-use/code-agent\'')
+    expect(built).toContain('name: \'@deepseek-ai/dsh-agent-instructions\'')
+    expect(built).toContain('maxBytes: 65536')
     expect(built).not.toContain('computer-use-preset-root')
   })
 
@@ -93,7 +96,7 @@ describe('computer-use overlay and extra root', () => {
     expect(composition).not.toContain('@deepseek-ai/dsh-tool-todo')
     expect(composition).not.toContain('@deepseek-ai/dsh-tool-subagent')
     expect(composition).not.toContain('@deepseek-ai/dsh-plan-mode')
-    expect(composition).not.toContain('@deepseek-ai/dsh-agent-instructions')
+    expect(composition).toContain('@deepseek-ai/dsh-agent-instructions')
   })
 
   // dsh 0.2.1-rc.1 dropped the `cwd` prompt variable: `dsh-agent-loop` now

@@ -1,6 +1,4 @@
-/** Toolbar and observation-frame placement. No Electron import, so tests can run the same math. */
-
-export const SELECTION_TOOLBAR_SIZE = { width: 280, height: 46 } as const
+/** Observation-ribbon placement. No Electron import, so tests run the same math. */
 
 export const OBSERVATION_FRAME_STROKE_PX = 8
 export const OBSERVATION_FRAME_GLOW_PX = 28
@@ -28,54 +26,6 @@ export interface ObservationFramePlacement {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), Math.max(min, max))
-}
-
-/** Toolbar sits just below the mouse-up point and stays inside the work area. */
-export function selectionToolbarBounds(
-  anchor: { readonly x: number; readonly y: number },
-  size: { readonly width: number; readonly height: number } = SELECTION_TOOLBAR_SIZE,
-  workArea: OverlayRect,
-): OverlayRect {
-  const gap = 8
-  return {
-    x: clamp(anchor.x, workArea.x, workArea.x + workArea.width - size.width),
-    y: clamp(anchor.y + gap, workArea.y, workArea.y + workArea.height - size.height),
-    width: size.width,
-    height: size.height,
-  }
-}
-
-/**
- * Grow the toolbar window for the language menu.
- * The menu hangs below the bar when it fits, and above when it would leave the work area.
- */
-export function selectionToolbarMenuBounds(
-  barOrigin: { readonly x: number; readonly y: number },
-  contentSize: { readonly width: number; readonly height: number },
-  workArea: OverlayRect,
-): OverlayRect {
-  const width = Math.max(1, Math.round(contentSize.width))
-  const height = Math.max(1, Math.round(contentSize.height))
-  const x = clamp(barOrigin.x, workArea.x, workArea.x + workArea.width - width)
-  const fitsBelow = barOrigin.y + height <= workArea.y + workArea.height
-  if (fitsBelow || height <= SELECTION_TOOLBAR_SIZE.height) {
-    return {
-      x,
-      y: clamp(barOrigin.y, workArea.y, workArea.y + workArea.height - height),
-      width,
-      height,
-    }
-  }
-  return {
-    x,
-    y: clamp(
-      barOrigin.y + SELECTION_TOOLBAR_SIZE.height - height,
-      workArea.y,
-      workArea.y + workArea.height - height,
-    ),
-    width,
-    height,
-  }
 }
 
 function intersectRects(area: OverlayRect, clip: OverlayRect): OverlayRect {
@@ -151,12 +101,4 @@ export function observationFrameCssScript(
     `root.setProperty(${JSON.stringify(name)}, ${JSON.stringify(`${String(value)}px`)});`,
   ).join('')
   return `(() => { const root = document.documentElement.style; ${assignments} })()`
-}
-
-export function pointInRect(
-  point: { readonly x: number; readonly y: number },
-  bounds: OverlayRect,
-): boolean {
-  return point.x >= bounds.x && point.y >= bounds.y
-    && point.x < bounds.x + bounds.width && point.y < bounds.y + bounds.height
 }

@@ -35,6 +35,7 @@ import {
   clipboardRestoreIncomplete,
   createWindowsDesktopBackend,
   encodeBgraPng,
+  unicodeTextActions,
   windowsKeyIsExtended,
   windowsVirtualKey,
   type WindowsDesktopOps,
@@ -122,6 +123,37 @@ describe('windows desktop backend', () => {
     expect(() => { windowsVirtualKey('not-a-key') }).toThrow(/unknown key/u)
   })
 
+  it('plans multiline text as Shift+Enter line breaks and literal tabs', () => {
+    expect(unicodeTextActions('first\r\nsecond\nthird\tend')).toEqual([
+      ...'first'.split('').map(char => ({ kind: 'unicode', unit: char.charCodeAt(0) })),
+      { kind: 'line-break' },
+      ...'second'.split('').map(char => ({ kind: 'unicode', unit: char.charCodeAt(0) })),
+      { kind: 'line-break' },
+      ...'third'.split('').map(char => ({ kind: 'unicode', unit: char.charCodeAt(0) })),
+      { kind: 'tab' },
+      ...'end'.split('').map(char => ({ kind: 'unicode', unit: char.charCodeAt(0) })),
+    ])
+    for (const control of ['\u0000', '\b', '\u001b', '\u007f']) {
+      expect(() => unicodeTextActions(`before${control}after`)).toThrow(/cannot insert control character/u)
+    }
+  })
+
+  it('refuses control characters before clicking or touching the clipboard', async () => {
+    const host = ops({
+      typeUnicode: (text) => { host.calls.push(`unicode:${text}`) },
+    })
+    const backend = createWindowsDesktopBackend(host)
+    const screen = { index: 0, bounds, scale: 1 }
+    await expect(backend.typeText({
+      screen,
+      position: [0, 0],
+      text: 'safe\bunsafe',
+      replace: false,
+      submit: false,
+    })).rejects.toThrow(/U\+0008/u)
+    expect(host.calls).toEqual([])
+  })
+
   it('captures the selected window and reports an Explorer folder as finderFolder', async () => {
     const popup = fact({
       hwnd: 6,
@@ -196,6 +228,22 @@ describe('windows desktop backend', () => {
     expect(host.calls).not.toContain('key:65:down:0')
     expect(host.calls).not.toContain('key:13:down:0')
     expect(host.calls.at(-1)).toBe('clip-restore:13')
+  })
+
+  it('types Unicode directly when the host supports it, without touching the clipboard', async () => {
+    const host = ops({
+      typeUnicode: (text, signal) => {
+        signal?.throwIfAborted()
+        host.calls.push(`unicode:${text}`)
+      },
+    })
+    const screen = { index: 0, bounds, scale: 1 }
+    const backend = createWindowsDesktopBackend(host)
+    await backend.typeText({ screen, position: [0, 0], text: '你好 Orb', replace: true, submit: true })
+    expect(host.calls).toContain('unicode:你好 Orb')
+    expect(host.calls).not.toContain('clip-save')
+    expect(host.calls).not.toContain('clip:你好 Orb')
+    expect(host.calls).toContain('key:13:down:0')
   })
 
   it('puts every saved clipboard format back after a paste', async () => {

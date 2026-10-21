@@ -1,7 +1,8 @@
 /**
- * Where the helper's files are.
- * Installed `dsh-orb` keeps them next to this file: `dist/host/index.js` and `dist/helper/lib/main.js`.
- * In the workspace the helper is a separate package that Node resolves by name.
+ * Where the observation-ribbon helper's files are.
+ * Installed `dsh-orb` keeps them next to this file: `dist/host/index.js` and
+ * `dist/helper/lib/main.js`. In the workspace the helper is a separate package
+ * that Node resolves by name.
  */
 
 import { existsSync } from 'node:fs'
@@ -11,24 +12,19 @@ import { fileURLToPath } from 'node:url'
 
 const require = createRequire(import.meta.url)
 
-/** Root folder of the helper: holds `lib/`, `assets/` and the preload scripts. */
+/** Root folder of the helper: holds `lib/` and `assets/`. */
 export function helperRoot(): string {
   const assembled = fileURLToPath(new URL('../helper', import.meta.url))
   if (existsSync(join(assembled, 'lib', 'main.js'))) return assembled
   return dirname(require.resolve('@dsh-orb/helper/package.json'))
 }
 
-/** Electron entry script of the helper. */
+/** Electron entry script of the observation-ribbon helper. */
 export function helperMain(): string {
   return join(helperRoot(), 'lib', 'main.js')
 }
 
-/** Bundled default avatar. */
-export function defaultAvatarPath(): string {
-  return join(helperRoot(), 'assets', 'deepseek-avatar-square.gif')
-}
-
-/** Built-in avatar GIFs. The ball loads them from disk, the settings page over the route. */
-export function presetAvatarDir(): string {
-  return join(helperRoot(), 'assets', 'avatars')
+/** The one page the helper loads. */
+export function observationFramePage(): string {
+  return join(helperRoot(), 'assets', 'observation-frame.html')
 }

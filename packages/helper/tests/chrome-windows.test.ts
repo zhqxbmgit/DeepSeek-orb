@@ -32,13 +32,13 @@ describe('chrome window handles', () => {
   })
 
   it('collects unique ids on Windows and nothing on the other platforms', () => {
-    const ball = handleWindow(11n)
-    const toolbar = handleWindow(22n)
     const frame = handleWindow(11n)
-    assert.deepEqual(collectChromeWindowIds([ball, toolbar, frame], 'win32'), [11, 22])
-    assert.deepEqual(collectChromeWindowIds([ball, toolbar], 'darwin'), [])
-    assert.deepEqual(collectChromeWindowIds([ball, toolbar], 'linux'), [])
-    assert.deepEqual(collectChromeWindowIds([undefined, toolbar], 'win32'), [22])
+    const duplicate = handleWindow(11n)
+    const stale = handleWindow(22n)
+    assert.deepEqual(collectChromeWindowIds([frame, stale, duplicate], 'win32'), [11, 22])
+    assert.deepEqual(collectChromeWindowIds([frame, stale], 'darwin'), [])
+    assert.deepEqual(collectChromeWindowIds([frame, stale], 'linux'), [])
+    assert.deepEqual(collectChromeWindowIds([undefined, stale], 'win32'), [22])
   })
 
   it('drops a window whose handle cannot be read', () => {

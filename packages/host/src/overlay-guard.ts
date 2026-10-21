@@ -1,9 +1,9 @@
 /**
  * Computer Use overlay cloak.
- * Every capture runs inside an `overlay-capture` interval: the helper lifts the ball,
- * toolbar, and observation frame out of screen captures for the interval, so the agent
- * never sees its own chrome. HID bursts keep the `overlay-input` interval, which also
- * holds the protection across the post-action screenshot inside the burst.
+ * Every capture runs inside an `overlay-capture` interval: the ribbon helper
+ * acknowledges the interval while its content-protected window stays out of screen
+ * captures. HID bursts keep the `overlay-input` interval, which also holds the
+ * protection across the post-action screenshot inside the burst.
  */
 
 import { randomUUID } from 'node:crypto'
@@ -26,9 +26,9 @@ export interface OverlayGuardTransport {
   setHidInput(active: boolean): void
   /**
    * Overlay window ids the capture must skip when it picks an observation window.
-   * A Windows helper reports the ball, toolbar, and frame handles, so a click on the ball
-   * cannot make it the window the agent believes the user is working in. A macOS helper
-   * reports nothing: the ball there is a non-activating panel and never becomes foreground.
+   * A Windows helper reports the frame handle, so the overlay cannot become the window
+   * the agent believes the user is working in. A macOS helper reports nothing: the panel
+   * there is non-activating and never becomes foreground.
    */
   chromeWindowIds?(): readonly number[]
   /** The user's observation-ribbon preference; absent or true draws frames. */
@@ -64,7 +64,7 @@ export function createOverlayGuard(transport: OverlayGuardTransport) {
           const begin = transport.send({ type: 'overlay-capture', id: randomUUID(), active: true }, signal)
           // The helper counts the capture as soon as the begin is written, and an abort or
           // an ack timeout rejects the await. Mark it before that await so the finally
-          // still closes the interval; otherwise the ball would stay protected and vanish
+          // still closes the interval; otherwise the ribbon would stay protected and vanish
           // from every later capture.
           captureOpen = true
           await begin
@@ -72,7 +72,7 @@ export function createOverlayGuard(transport: OverlayGuardTransport) {
         }
         // Inside an input interval the helper already cloaks every chrome window, so the
         // nested capture sends no IPC. It still needs the ids: the post-action screenshot
-        // is taken while the ball may hold the foreground.
+        // is taken while the overlay may hold the foreground.
         return await run({ excludeWindowIds: transport.chromeWindowIds?.() ?? [] })
       } finally {
         captureDepth -= 1

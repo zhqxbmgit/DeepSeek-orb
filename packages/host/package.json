@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Host-side Orb plugin. Starts the floating-ball helper and owns its Computer Use session.",
+  "description": "Host-side dsh-orb plugin for main-window Computer Use and the observation ribbon.",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "exports": {
@@ -22,7 +22,6 @@
   "license": "MIT",
   "dependencies": {
     "@dsh-orb/helper": "file:../helper",
-    "@dsh-orb/native-selection": "file:../native-selection",
     "koffi": "^3.1.0"
   },
   "peerDependencies": {
